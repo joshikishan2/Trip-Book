@@ -36,7 +36,8 @@ h2{font-size:16px;margin:18px 2px 8px}
 .route{margin:4px 0;font-size:15px}
 .meta{color:var(--mu);font-size:13px;line-height:1.5}
 .chip{display:inline-block;font-size:12px;padding:3px 9px;border-radius:12px;color:#fff;font-weight:600}
-.s-Running{background:var(--blu)}.s-Delivered{background:#6a1b9a}.s-Payment-Pending{background:var(--amb)}.s-Completed{background:var(--g2)}
+.s-Running{background:var(--blu)}.s-Reached{background:var(--amb)}.s-Unloaded{background:var(--g2)}.p-pend{background:var(--red)}.p-done{background:#2e7d32}
+.chips{display:flex;gap:6px;flex-wrap:wrap;justify-content:flex-end}
 .dues{display:flex;gap:8px;margin:8px 0;flex-wrap:wrap}
 .due{font-size:13px;padding:4px 8px;border-radius:8px;background:#f3f6f4}
 .acts{display:flex;gap:8px;margin-top:8px}
@@ -92,7 +93,7 @@ input:focus,select:focus,textarea:focus{outline:none;border-color:var(--g2)}
     <div class="stat"><small>To Collect (Party)</small><strong id="d-coll" class="red">₹0</strong></div>
     <div class="stat"><small>To Pay (Transporter)</small><strong id="d-pay" class="red">₹0</strong></div>
     <div class="stat"><small>Month Commission</small><strong id="d-comm" class="blu">₹0</strong></div>
-    <div class="stat"><small>Running Trips</small><strong id="d-run">0</strong></div>
+    <div class="stat"><small>Not Unloaded Yet</small><strong id="d-run">0</strong></div>
   </div>
   <h2>📅 Today's Trips</h2>
   <div id="today-list"></div>
@@ -110,7 +111,7 @@ input:focus,select:focus,textarea:focus{outline:none;border-color:var(--g2)}
       <div><small>From date</small><input id="f-from" type="date"></div>
       <div><small>To date</small><input id="f-to" type="date"></div>
     </div>
-    <select id="f-st"><option value="">All Status</option><option>Running</option><option>Delivered</option><option>Payment Pending</option><option>Completed</option></select>
+    <select id="f-st"><option value="">All Trip Status</option><option value="Running">Running</option><option value="Reached">Reached – Unloading Pending</option><option value="Unloaded">Unloaded</option></select>
     <label class="tog"><input type="checkbox" id="f-pend"> Payment pending only</label>
     <button class="big gry" style="height:44px;margin-top:10px;font-size:15px" id="f-clr">Reset Filters</button>
   </div>
@@ -149,8 +150,9 @@ input:focus,select:focus,textarea:focus{outline:none;border-color:var(--g2)}
 
   <div class="profit" id="t-calc"></div>
 
-  <label>Status</label>
-  <select id="t-st"><option>Running</option><option>Delivered</option><option>Payment Pending</option><option>Completed</option></select>
+  <label>Trip Status</label>
+  <select id="t-st"><option value="Running">Running (on the way)</option><option value="Reached">Reached – Unloading Pending</option><option value="Unloaded">Unloaded</option></select>
+  <div class="note" style="margin-top:6px">Trip status is only about the truck. Payment status is worked out automatically from the amounts you enter above.</div>
   <label>Remarks <i>(optional)</i></label><textarea id="t-rm"></textarea>
 
   <button class="big" id="t-save">💾 Save</button>
@@ -224,6 +226,8 @@ const KEY='tripbook_v1', MKEY='tripbook_master';
 let trips=[];
 try{trips=JSON.parse(localStorage.getItem(KEY)||'[]')}catch(e){trips=[]}
 const save=()=>{try{localStorage.setItem(KEY,JSON.stringify(trips));return true}catch(e){toast('⚠ Save failed — storage full?');return false}};
+const STL={Running:'Running',Reached:'Reached – Unloading Pending',Unloaded:'Unloaded'};
+(function(){let ch=false;trips.forEach(t=>{if(t.status==='Delivered'||t.status==='Payment Pending'||t.status==='Completed'){t.status='Unloaded';ch=true}else if(!STL[t.status]){t.status='Running';ch=true}});if(ch)try{localStorage.setItem(KEY,JSON.stringify(trips))}catch(e){}})();
 const $=s=>document.querySelector(s), $$=s=>[...document.querySelectorAll(s)];
 const esc=s=>String(s==null?'':s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const num=v=>parseFloat(v)||0;
@@ -346,10 +350,10 @@ $('#fab').onclick=()=>openForm();
 
 /* ---------- trip card ---------- */
 function card(t){
-  const c=calc(t), sc='s-'+t.status.replace(' ','-');
+  const c=calc(t), sc='s-'+t.status, pend=isPend(t);
   const refs=(t.recvRef?'🔖 Received ref: '+esc(t.recvRef)+'<br>':'')+(t.paidRef?'🔖 Paid ref: '+esc(t.paidRef)+'<br>':'');
   return `<div class="card" data-id="${t.id}">
-    <div class="top"><span class="veh">${esc(t.vehicle)}</span><span class="chip ${sc}">${esc(t.status)}</span></div>
+    <div class="top"><span class="veh">${esc(t.vehicle)}</span><span class="chips"><span class="chip ${sc}">${esc(STL[t.status]||t.status)}</span><span class="chip ${pend?'p-pend':'p-done'}">${pend?'Payment Pending':'Payments Done'}</span></span></div>
     <div class="route">📍 ${esc(t.from)} → ${esc(t.to)} &nbsp;·&nbsp; 📦 ${esc(t.material)}${t.omc?' &nbsp;·&nbsp; 🛢 '+esc(t.omc):''}${t.ba?' &nbsp;·&nbsp; 🧾 B.A: '+esc(t.ba):''}</div>
     <div class="meta">📅 ${fmtD(t.date)} &nbsp; 🏢 ${esc(t.party)}<br>🚚 ${esc(t.tname)} ${t.tphone?'('+esc(t.tphone)+')':''}</div>
     <div class="dues">
@@ -395,7 +399,7 @@ function renderHome(){
   const d=$('#d-profit');d.textContent=inr(mp);d.className=mp<0?'red':'grn';
   $('#d-coll').textContent=inr(coll);$('#d-pay').textContent=inr(pay);
   $('#d-comm').textContent=inr(month.reduce((s,t)=>s+calc(t).cm,0));
-  $('#d-run').textContent=trips.filter(t=>t.status==='Running').length;
+  $('#d-run').textContent=trips.filter(t=>t.status!=='Unloaded').length;
   $('#today-list').innerHTML=today.length?today.map(card).join(''):'<div class="empty">No trips today</div>';
   const pend=trips.filter(isPend).sort((a,b)=>(b.date||'').localeCompare(a.date||'')).slice(0,10);
   $('#pend-list').innerHTML=pend.length?pend.map(card).join(''):'<div class="empty">No pending payments 🎉</div>';
@@ -520,9 +524,9 @@ function rangeTrips(){
   const f=$('#x-from').value,t=$('#x-to').value;
   return trips.filter(x=>(!f||x.date>=f)&&(!t||x.date<=t)).sort((a,b)=>(a.date||'').localeCompare(b.date||''));
 }
-const HEAD=['Date','Vehicle','From','To','Material/Qty','Total Freight','Commission','Party','Transporter','Transporter Phone','Received Status','Amount Received','Paid Status','Amount Paid','Profit (Received-Paid)','Party Balance','Transporter Balance','Status','Remarks','OMC','Received Ref No','Paid Ref No','B.A'];
+const HEAD=['Date','Vehicle','From','To','Material/Qty','Total Freight','Commission','Party','Transporter','Transporter Phone','Received Status','Amount Received','Paid Status','Amount Paid','Profit (Received-Paid)','Party Balance','Transporter Balance','Status','Remarks','OMC','Received Ref No','Paid Ref No','B.A','Payment Status'];
 const TOT=[5,6,11,13,14,15,16];
-function rows(list){return list.map(t=>{const c=calc(t);return[fmtD(t.date),t.vehicle,t.from,t.to,t.material,c.fr,c.cm,t.party,t.tname,t.tphone,t.recvStatus,c.rc,t.paidStatus,c.pd,c.profit,c.partyDue,c.transDue,t.status,t.remarks,t.omc||'',t.recvRef||'',t.paidRef||'',t.ba||'']})}
+function rows(list){return list.map(t=>{const c=calc(t);return[fmtD(t.date),t.vehicle,t.from,t.to,t.material,c.fr,c.cm,t.party,t.tname,t.tphone,t.recvStatus,c.rc,t.paidStatus,c.pd,c.profit,c.partyDue,c.transDue,STL[t.status]||t.status,t.remarks,t.omc||'',t.recvRef||'',t.paidRef||'',t.ba||'',isPend(t)?'Payment Pending':'Payments Done']})}
 
 /* real .xlsx writer (no library): minimal ZIP (stored) + SpreadsheetML */
 const CRCT=(()=>{const t=[];for(let n=0;n<256;n++){let c=n;for(let k=0;k<8;k++)c=c&1?0xEDB88320^(c>>>1):c>>>1;t[n]=c>>>0}return t})();
