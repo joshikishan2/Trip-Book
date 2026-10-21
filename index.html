@@ -507,7 +507,7 @@ $('#t-save').onclick=()=>{
 function sendWA(id){
   const t=trips.find(x=>x.id===id);if(!t)return;
   const c=calc(t);
-  const msg=`🚛 *TRIP DETAILS*\n📅 Loading: ${fmtD(t.date)}\n🚚 Vehicle: *${t.vehicle}*\n${t.omc?'🛢 OMC: '+t.omc+'\n':''}📍 From: ${t.from}\n🏁 To: ${t.to}\n📦 Material: ${t.material}\n💰 Freight: ₹${Math.round(c.transTotal).toLocaleString('en-IN')}`+
+  const msg=`🚛 *TRIP DETAILS*\n📅 Loading: ${fmtD(t.date)}\n🚚 Vehicle: *${t.vehicle}*\n${t.omc?'🛢 OMC: '+t.omc+'\n':''}📍 From: ${t.from}\n🏁 To: ${t.to}\n🏢 Company: ${t.party}\n📦 Material: ${t.material}`+
     (c.pd?`\n✅ Paid so far: ₹${Math.round(c.pd).toLocaleString('en-IN')}${t.paidRef?' (Ref: '+t.paidRef+')':''}\n⏳ Balance: ₹${Math.round(c.transDue).toLocaleString('en-IN')}`:'')+
     (t.remarks?`\n📝 ${t.remarks}`:'')+`\n\nThanks 🙏`;
   let p=(t.tphone||'').replace(/\D/g,'');
