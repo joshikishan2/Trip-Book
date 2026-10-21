@@ -64,6 +64,9 @@ input:focus,select:focus,textarea:focus{outline:none;border-color:var(--g2)}
 .mbar input{flex:1;margin:0!important;font-size:17px;font-weight:700;text-align:center}
 .tog{display:flex;align-items:center;gap:8px;font-size:15px;font-weight:600;margin:0}
 .tog input{width:24px;height:24px;margin:0}
+.bk{display:block;width:100%;text-align:left;border:0;border-radius:14px;padding:12px 14px;margin-bottom:12px;font-size:15px;line-height:1.4;font-family:inherit}
+.bk.warn{background:#fdecea;color:#8c1c13;border:1.5px solid var(--red)}
+.bk.ok{background:#e8f5ee;color:#0b5d3b;border:1px solid var(--bd);font-size:13px;padding:8px 12px}
 .empty{text-align:center;color:var(--mu);padding:30px 10px}
 #toast{position:fixed;left:50%;bottom:150px;transform:translateX(-50%);background:#222;color:#fff;padding:10px 18px;border-radius:22px;font-size:14px;z-index:60;opacity:0;transition:.25s;pointer-events:none;max-width:90%;text-align:center}
 #toast.on{opacity:1}
@@ -82,6 +85,7 @@ input:focus,select:focus,textarea:focus{outline:none;border-color:var(--g2)}
 
 <!-- HOME -->
 <section class="view on" id="v-home">
+  <button class="bk ok" id="bk-banner" type="button" style="display:none"></button>
   <div class="grid">
     <div class="stat"><small>Today's Trips</small><strong id="d-today">0</strong></div>
     <div class="stat"><small>Month Profit</small><strong id="d-profit" class="grn">₹0</strong></div>
@@ -227,6 +231,9 @@ const inr=n=>(n<0?'-':'')+'₹'+Math.round(Math.abs(n)).toLocaleString('en-IN');
 const pad=n=>String(n).padStart(2,'0');
 const todayStr=()=>{const d=new Date();return d.getFullYear()+'-'+pad(d.getMonth()+1)+'-'+pad(d.getDate())};
 const fmtD=s=>{if(!s)return'';const p=s.split('-');return p[2]+'-'+p[1]+'-'+p[0]};
+const BKKEY='tripbook_lastbackup';
+const getBk=()=>{try{return +localStorage.getItem(BKKEY)||0}catch(e){return 0}};
+const setBk=()=>{try{localStorage.setItem(BKKEY,String(Date.now()))}catch(e){}};
 const uid=()=>Date.now().toString(36)+Math.random().toString(36).slice(2,6);
 let tt;function toast(m){const t=$('#toast');t.textContent=m;t.classList.add('on');clearTimeout(tt);tt=setTimeout(()=>t.classList.remove('on'),2200)}
 const normV=v=>String(v||'').toUpperCase().replace(/\s+/g,'');
@@ -369,7 +376,16 @@ function delTrip(id){
 }
 
 /* ---------- home ---------- */
+function renderBackupBanner(){
+  const b=$('#bk-banner');if(!b)return;
+  if(!trips.length){b.style.display='none';return}
+  const last=getBk(),days=last?Math.floor((Date.now()-last)/86400000):null;
+  b.style.display='block';
+  if(last&&days<7){b.className='bk ok';b.textContent='✅ Last backup: '+(days===0?'today':days+' day'+(days>1?'s':'')+' ago')}
+  else{b.className='bk warn';b.innerHTML=last?'<b>⚠ Last backup was '+days+' days ago.</b><br>Tap here to back up now.':'<b>⚠ No backup taken yet.</b><br>Tap here to back up now.'}
+}
 function renderHome(){
+  renderBackupBanner();
   const td=todayStr(),mo=td.slice(0,7);
   const today=trips.filter(t=>t.date===td);
   const month=trips.filter(t=>(t.date||'').startsWith(mo));
@@ -563,16 +579,16 @@ function download(blob,name){
 async function saveFile(blob,name,mime){
   try{
     const f=new File([blob],name,{type:mime});
-    if(navigator.canShare&&navigator.canShare({files:[f]})){await navigator.share({files:[f],title:name});return}
-  }catch(e){if(e&&e.name==='AbortError')return}
-  download(blob,name);
+    if(navigator.canShare&&navigator.canShare({files:[f]})){await navigator.share({files:[f],title:name});return true}
+  }catch(e){if(e&&e.name==='AbortError')return false}
+  download(blob,name);return true;
 }
 const XMIME='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
 function stamp(){return todayStr()}
 $('#x-xls').onclick=()=>{const l=rangeTrips();if(!l.length)return toast('No data');saveFile(makeXLSX(l),'TripBook_'+stamp()+'.xlsx',XMIME)};
 $('#x-csv').onclick=()=>{const l=rangeTrips();if(!l.length)return toast('No data');saveFile(makeCSV(l),'TripBook_'+stamp()+'.csv','text/csv')};
 $('#x-share').onclick=()=>{const l=rangeTrips();if(!l.length)return toast('No data');download(makeXLSX(l),'TripBook_'+stamp()+'.xlsx')};
-$('#b-save').onclick=()=>{saveFile(new Blob([JSON.stringify({app:'tripbook',v:2,trips,master},null,1)],{type:'application/json'}),'TripBook_backup_'+stamp()+'.json','application/json')};
+$('#b-save').onclick=async()=>{if(await saveFile(new Blob([JSON.stringify({app:'tripbook',v:2,trips,master},null,1)],{type:'application/json'}),'TripBook_backup_'+stamp()+'.json','application/json'))setBk()};
 $('#b-load').onclick=()=>$('#b-file').click();
 $('#b-file').onchange=e=>{
   const f=e.target.files[0];if(!f)return;
@@ -597,10 +613,11 @@ $('#b-file').onchange=e=>{
   };
   r.readAsText(f);
 };
+$('#bk-banner').onclick=()=>show('export');
 function renderExportInfo(){
   if(!$('#x-from').value){const d=new Date();$('#x-from').value=d.getFullYear()+'-'+pad(d.getMonth()+1)+'-01'}
   if(!$('#x-to').value)$('#x-to').value=todayStr();
-  $('#stor').textContent='Total trips: '+trips.length;
+  {const l=getBk();$('#stor').textContent='Total trips: '+trips.length+' · Last backup: '+(l?new Date(l).toLocaleDateString('en-IN'):'never')}
 }
 
 /* ---------- PWA: manifest, icon, service worker, install ---------- */
