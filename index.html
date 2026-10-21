@@ -36,7 +36,9 @@ h2{font-size:16px;margin:18px 2px 8px}
 .route{margin:4px 0;font-size:15px}
 .meta{color:var(--mu);font-size:13px;line-height:1.5}
 .chip{display:inline-block;font-size:12px;padding:3px 9px;border-radius:12px;color:#fff;font-weight:600}
-.s-Running{background:var(--blu)}.s-Reached{background:var(--amb)}.s-Unloaded{background:var(--g2)}.p-pend{background:var(--red)}.p-done{background:#2e7d32}
+.s-Waiting{background:#6a1b9a}.s-Running{background:var(--blu)}.s-Unload-Pending{background:var(--amb)}.s-Payment-Pending{background:var(--red)}.s-Bill-Done{background:var(--g2)}
+.waitl{font-size:13px;margin-top:4px;color:var(--mu)}.waitl.over{color:var(--red);font-weight:700}
+.remrow{display:block;width:100%;text-align:left;border:1.5px solid var(--red);background:#fdecea;color:#8c1c13;border-radius:12px;padding:10px 12px;margin-bottom:8px;font-size:14px;line-height:1.4;font-family:inherit}
 .chips{display:flex;gap:6px;flex-wrap:wrap;justify-content:flex-end}
 .dues{display:flex;gap:8px;margin:8px 0;flex-wrap:wrap}
 .due{font-size:13px;padding:4px 8px;border-radius:8px;background:#f3f6f4}
@@ -86,6 +88,7 @@ input:focus,select:focus,textarea:focus{outline:none;border-color:var(--g2)}
 
 <!-- HOME -->
 <section class="view on" id="v-home">
+  <div id="rem-box"></div>
   <button class="bk ok" id="bk-banner" type="button" style="display:none"></button>
   <div class="grid">
     <div class="stat"><small>Today's Trips</small><strong id="d-today">0</strong></div>
@@ -93,7 +96,7 @@ input:focus,select:focus,textarea:focus{outline:none;border-color:var(--g2)}
     <div class="stat"><small>To Collect (Party)</small><strong id="d-coll" class="red">₹0</strong></div>
     <div class="stat"><small>To Pay (Transporter)</small><strong id="d-pay" class="red">₹0</strong></div>
     <div class="stat"><small>Month Commission</small><strong id="d-comm" class="blu">₹0</strong></div>
-    <div class="stat"><small>Not Unloaded Yet</small><strong id="d-run">0</strong></div>
+    <div class="stat"><small>Running Trips</small><strong id="d-run">0</strong></div>
   </div>
   <h2>📅 Today's Trips</h2>
   <div id="today-list"></div>
@@ -111,7 +114,7 @@ input:focus,select:focus,textarea:focus{outline:none;border-color:var(--g2)}
       <div><small>From date</small><input id="f-from" type="date"></div>
       <div><small>To date</small><input id="f-to" type="date"></div>
     </div>
-    <select id="f-st"><option value="">All Trip Status</option><option value="Running">Running</option><option value="Reached">Reached – Unloading Pending</option><option value="Unloaded">Unloaded</option></select>
+    <select id="f-st"><option value="">All Trip Status</option><option value="Waiting">Waiting for Loading</option><option value="Running">Running</option><option value="Unload Pending">Unload Pending</option><option value="Payment Pending">Payment Pending</option><option value="Bill Done">Bill to Transporter Done</option></select>
     <label class="tog"><input type="checkbox" id="f-pend"> Payment pending only</label>
     <button class="big gry" style="height:44px;margin-top:10px;font-size:15px" id="f-clr">Reset Filters</button>
   </div>
@@ -151,8 +154,8 @@ input:focus,select:focus,textarea:focus{outline:none;border-color:var(--g2)}
   <div class="profit" id="t-calc"></div>
 
   <label>Trip Status</label>
-  <select id="t-st"><option value="Running">Running (on the way)</option><option value="Reached">Reached – Unloading Pending</option><option value="Unloaded">Unloaded</option></select>
-  <div class="note" style="margin-top:6px">Trip status is only about the truck. Payment status is worked out automatically from the amounts you enter above.</div>
+  <select id="t-st"><option value="Waiting">Waiting for Loading</option><option value="Running">Running (on the way)</option><option value="Unload Pending">Unload Pending</option><option value="Payment Pending">Payment Pending</option><option value="Bill Done">Bill to Transporter Done</option></select>
+  <div id="ws-wrap"><label>Waiting since <i>(date)</i></label><input id="t-ws" type="date"></div>
   <label>Remarks <i>(optional)</i></label><textarea id="t-rm"></textarea>
 
   <button class="big" id="t-save">💾 Save</button>
@@ -186,6 +189,14 @@ input:focus,select:focus,textarea:focus{outline:none;border-color:var(--g2)}
     <input id="mb-in" placeholder="B.A name">
     <button class="big addbtn" id="mb-add" type="button">➕ Add B.A</button>
     <div id="m-ba"></div>
+  </div>
+  <div class="mc">
+    <h3>⏰ Reminder Settings</h3>
+    <label style="margin-top:0">Remind if TT is waiting for loading for more than (days)</label>
+    <input id="rs-load" type="number" inputmode="numeric" min="1">
+    <label>Remind if TT is waiting for unloading for more than (days)</label>
+    <input id="rs-unl" type="number" inputmode="numeric" min="1">
+    <button class="big addbtn" id="rs-save" type="button">💾 Save Reminder Days</button>
   </div>
   <p class="note">Deleting from these lists does not delete any saved trips.</p>
 </section>
@@ -226,8 +237,10 @@ const KEY='tripbook_v1', MKEY='tripbook_master';
 let trips=[];
 try{trips=JSON.parse(localStorage.getItem(KEY)||'[]')}catch(e){trips=[]}
 const save=()=>{try{localStorage.setItem(KEY,JSON.stringify(trips));return true}catch(e){toast('⚠ Save failed — storage full?');return false}};
-const STL={Running:'Running',Reached:'Reached – Unloading Pending',Unloaded:'Unloaded'};
-(function(){let ch=false;trips.forEach(t=>{if(t.status==='Delivered'||t.status==='Payment Pending'||t.status==='Completed'){t.status='Unloaded';ch=true}else if(!STL[t.status]){t.status='Running';ch=true}});if(ch)try{localStorage.setItem(KEY,JSON.stringify(trips))}catch(e){}})();
+const STL={'Waiting':'Waiting for Loading','Running':'Running','Unload Pending':'Unload Pending','Payment Pending':'Payment Pending','Bill Done':'Bill to Transporter Done'};
+const WAITING=['Waiting','Unload Pending'];
+let rem={load:2,unl:2};
+try{const r=JSON.parse(localStorage.getItem('tripbook_rem')||'null');if(r&&r.load>0&&r.unl>0)rem=r}catch(e){}
 const $=s=>document.querySelector(s), $$=s=>[...document.querySelectorAll(s)];
 const esc=s=>String(s==null?'':s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const num=v=>parseFloat(v)||0;
@@ -264,6 +277,7 @@ function mrow(type,key,label){
   return '<div class="mrow"><span>'+esc(label)+'</span><button type="button" data-mt="'+type+'" data-mk="'+esc(key)+'">🗑</button></div>';
 }
 function renderMaster(){
+  $('#rs-load').value=rem.load;$('#rs-unl').value=rem.unl;
   const V=[...master.veh].sort();
   $('#m-veh').innerHTML=V.length?V.map(v=>mrow('veh',v,v)).join(''):'<div class="note">No TT numbers yet.</div>';
   const T=[...master.trn].sort((a,b)=>a.n.localeCompare(b.n));
@@ -332,6 +346,17 @@ function calc(t){
     transDue:Math.max(0,transTotal-pd)};
 }
 const isPend=t=>{const c=calc(t);return c.partyDue>0||c.transDue>0};
+(function(){let ch=false;trips.forEach(t=>{
+  if(STL[t.status])return;
+  if(t.status==='Reached')t.status='Unload Pending';
+  else if(t.status==='Unloaded'||t.status==='Delivered'||t.status==='Completed')t.status=isPend(t)?'Payment Pending':'Bill Done';
+  else if(t.status==='Payment Pending')t.status='Payment Pending';
+  else t.status='Running';
+  if(WAITING.includes(t.status)&&!t.waitSince)t.waitSince=t.date||'';
+  ch=true});
+  if(ch)try{localStorage.setItem(KEY,JSON.stringify(trips))}catch(e){}})();
+const daysSince=d=>{if(!d)return 0;const a=d.split('-'),n=new Date();return Math.max(0,Math.floor((new Date(n.getFullYear(),n.getMonth(),n.getDate())-new Date(+a[0],+a[1]-1,+a[2]))/86400000))};
+const limitFor=t=>t.status==='Waiting'?rem.load:rem.unl;
 
 /* ---------- navigation ---------- */
 function show(v){
@@ -350,12 +375,14 @@ $('#fab').onclick=()=>openForm();
 
 /* ---------- trip card ---------- */
 function card(t){
-  const c=calc(t), sc='s-'+t.status, pend=isPend(t);
+  const c=calc(t), sc='s-'+String(t.status).replace(' ','-');
+  const wd=WAITING.includes(t.status)?daysSince(t.waitSince):-1, wover=wd>=0&&wd>=limitFor(t);
   const refs=(t.recvRef?'🔖 Received ref: '+esc(t.recvRef)+'<br>':'')+(t.paidRef?'🔖 Paid ref: '+esc(t.paidRef)+'<br>':'');
   return `<div class="card" data-id="${t.id}">
-    <div class="top"><span class="veh">${esc(t.vehicle)}</span><span class="chips"><span class="chip ${sc}">${esc(STL[t.status]||t.status)}</span><span class="chip ${pend?'p-pend':'p-done'}">${pend?'Payment Pending':'Payments Done'}</span></span></div>
+    <div class="top"><span class="veh">${esc(t.vehicle)}</span><span class="chip ${sc}">${esc(STL[t.status]||t.status)}</span></div>
     <div class="route">📍 ${esc(t.from)} → ${esc(t.to)} &nbsp;·&nbsp; 📦 ${esc(t.material)}${t.omc?' &nbsp;·&nbsp; 🛢 '+esc(t.omc):''}${t.ba?' &nbsp;·&nbsp; 🧾 B.A: '+esc(t.ba):''}</div>
     <div class="meta">📅 ${fmtD(t.date)} &nbsp; 🏢 ${esc(t.party)}<br>🚚 ${esc(t.tname)} ${t.tphone?'('+esc(t.tphone)+')':''}</div>
+    ${wd>=0?`<div class="waitl${wover?' over':''}">${wover?'⏰':'⏳'} ${t.status==='Waiting'?'Waiting for loading':'Waiting for unloading'} since ${wd} day${wd===1?'':'s'}${t.waitSince?' ('+fmtD(t.waitSince)+')':''}</div>`:''}
     <div class="dues">
       <span class="due">Freight ${inr(c.fr)}</span>
       <span class="due">Commission ${inr(c.cm)}</span>
@@ -388,7 +415,14 @@ function renderBackupBanner(){
   if(last&&days<7){b.className='bk ok';b.textContent='✅ Last backup: '+(days===0?'today':days+' day'+(days>1?'s':'')+' ago')}
   else{b.className='bk warn';b.innerHTML=last?'<b>⚠ Last backup was '+days+' days ago.</b><br>Tap here to back up now.':'<b>⚠ No backup taken yet.</b><br>Tap here to back up now.'}
 }
+function renderReminders(){
+  const box=$('#rem-box');if(!box)return;
+  const al=trips.filter(t=>WAITING.includes(t.status)&&daysSince(t.waitSince)>=limitFor(t)).sort((a,b)=>daysSince(b.waitSince)-daysSince(a.waitSince));
+  box.innerHTML=al.length?'<h2 style="margin-top:0">⏰ Reminders ('+al.length+')</h2>'+al.map(t=>{const d=daysSince(t.waitSince);return '<button type="button" class="remrow" data-rem="'+t.id+'"><b>'+esc(t.vehicle)+'</b> — '+(t.status==='Waiting'?'waiting for loading':'waiting for unloading')+' since <b>'+d+' day'+(d===1?'':'s')+'</b><br>'+esc(t.from)+' → '+esc(t.to)+' · '+esc(t.party)+'</button>'}).join(''):'';
+}
+$('#rem-box').addEventListener('click',e=>{const b=e.target.closest('[data-rem]');if(b)openForm(b.dataset.rem)});
 function renderHome(){
+  renderReminders();
   renderBackupBanner();
   const td=todayStr(),mo=td.slice(0,7);
   const today=trips.filter(t=>t.date===td);
@@ -399,7 +433,7 @@ function renderHome(){
   const d=$('#d-profit');d.textContent=inr(mp);d.className=mp<0?'red':'grn';
   $('#d-coll').textContent=inr(coll);$('#d-pay').textContent=inr(pay);
   $('#d-comm').textContent=inr(month.reduce((s,t)=>s+calc(t).cm,0));
-  $('#d-run').textContent=trips.filter(t=>t.status!=='Unloaded').length;
+  $('#d-run').textContent=trips.filter(t=>t.status==='Running').length;
   $('#today-list').innerHTML=today.length?today.map(card).join(''):'<div class="empty">No trips today</div>';
   const pend=trips.filter(isPend).sort((a,b)=>(b.date||'').localeCompare(a.date||'')).slice(0,10);
   $('#pend-list').innerHTML=pend.length?pend.map(card).join(''):'<div class="empty">No pending payments 🎉</div>';
@@ -463,6 +497,12 @@ $$('#sg-p button').forEach(b=>b.onclick=()=>{pS=b.dataset.v;setSeg('sg-p',pS);ap
 }));
 ['t-rc','t-pd'].forEach(i=>$('#'+i).addEventListener('input',recalcForm));
 
+function syncWS(){
+  const need=WAITING.includes($('#t-st').value);
+  $('#ws-wrap').style.display=need?'':'none';
+  if(need&&!$('#t-ws').value)$('#t-ws').value=todayStr();
+}
+$('#t-st').addEventListener('change',()=>{$('#t-ws').value='';syncWS()});
 function openForm(id){
   editId=id||null;
   const t=id?trips.find(x=>x.id===id):null;
@@ -485,6 +525,8 @@ function openForm(id){
   $('#t-pd').value=t?t.paidAmt:0;
   $('#t-pr').value=t?(t.paidRef||''):'';
   $('#t-st').value=t?t.status:'Running';
+  $('#t-ws').value=t?(t.waitSince||''):'';
+  syncWS();
   $('#t-rm').value=t?t.remarks:'';
   recalcForm();show('form');
 }
@@ -500,7 +542,7 @@ $('#t-save').onclick=()=>{
     date:g('t-date'),vehicle:normV(g('t-veh')),from:g('t-from'),to:g('t-to'),omc:g('t-omc'),ba:g('t-ba'),material:g('t-mat'),
     freight:fr,comm:cm,party:g('t-party'),tname:tv[0],tphone:tv[1]||'',
     recvStatus:rS,recvAmt:num(g('t-rc')),recvRef:g('t-rr'),paidStatus:pS,paidAmt:num(g('t-pd')),paidRef:g('t-pr'),
-    status:$('#t-st').value,remarks:g('t-rm')
+    status:$('#t-st').value,waitSince:WAITING.includes($('#t-st').value)?(g('t-ws')||todayStr()):'',remarks:g('t-rm')
   };
   if(editId){const i=trips.findIndex(x=>x.id===editId);trips[i]=Object.assign(trips[i],o)}
   else{trips.push(Object.assign({id:uid(),created:Date.now()},o))}
@@ -618,6 +660,12 @@ $('#b-file').onchange=e=>{
   r.readAsText(f);
 };
 $('#bk-banner').onclick=()=>show('export');
+$('#rs-save').onclick=()=>{
+  const l=parseInt($('#rs-load').value,10),u=parseInt($('#rs-unl').value,10);
+  if(!(l>0&&u>0))return toast('Enter days as 1 or more');
+  rem={load:l,unl:u};try{localStorage.setItem('tripbook_rem',JSON.stringify(rem))}catch(e){}
+  toast('✅ Reminder days saved');
+};
 function renderExportInfo(){
   if(!$('#x-from').value){const d=new Date();$('#x-from').value=d.getFullYear()+'-'+pad(d.getMonth()+1)+'-01'}
   if(!$('#x-to').value)$('#x-to').value=todayStr();
