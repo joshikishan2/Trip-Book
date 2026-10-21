@@ -7,8 +7,9 @@
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <title>Trip Book</title>
-<link rel="manifest" id="mf">
-<link rel="icon" id="ic">
+<link rel="manifest" href="manifest.json">
+<link rel="icon" href="icon-192.png">
+<link rel="apple-touch-icon" href="icon-192.png">
 <style>
 :root{--g:#0b5d3b;--g2:#13804f;--bg:#f2f5f3;--card:#fff;--tx:#14201a;--mu:#66756d;--red:#c62828;--amb:#e08a00;--blu:#1565c0;--bd:#dfe6e2}
 *{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
@@ -604,16 +605,8 @@ function renderExportInfo(){
 
 /* ---------- PWA: manifest, icon, service worker, install ---------- */
 (function(){
-  const svg='<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 192 192"><rect width="192" height="192" rx="40" fill="#0b5d3b"/><text x="96" y="125" font-size="100" text-anchor="middle">🚛</text></svg>';
-  const icon='data:image/svg+xml;utf8,'+encodeURIComponent(svg);
-  $('#ic').href=icon;
-  try{
-    const m={name:'Trip Book',short_name:'Trip Book',display:'standalone',orientation:'portrait',background_color:'#f2f5f3',theme_color:'#0b5d3b',start_url:location.href.split('#')[0],
-      icons:[{src:icon,sizes:'192x192',type:'image/svg+xml',purpose:'any'},{src:icon,sizes:'512x512',type:'image/svg+xml',purpose:'any'}]};
-    $('#mf').href=URL.createObjectURL(new Blob([JSON.stringify(m)],{type:'application/manifest+json'}));
-  }catch(e){}
   if('serviceWorker' in navigator&&/^https?:$/.test(location.protocol)){
-    navigator.serviceWorker.register('sw.js').catch(()=>{});
+    navigator.serviceWorker.register('sw.js',{scope:'./'}).catch(()=>{});
   }
   let dp;
   window.addEventListener('beforeinstallprompt',e=>{e.preventDefault();dp=e;$('#inst').style.display=''});
