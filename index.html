@@ -36,7 +36,7 @@ h2{font-size:16px;margin:18px 2px 8px}
 .route{margin:4px 0;font-size:15px}
 .meta{color:var(--mu);font-size:13px;line-height:1.5}
 .chip{display:inline-block;font-size:12px;padding:3px 9px;border-radius:12px;color:#fff;font-weight:600}
-.s-Waiting{background:#6a1b9a}.s-Running{background:var(--blu)}.s-Unload-Pending{background:var(--amb)}.s-Payment-Pending{background:var(--red)}.s-Bill-Done{background:var(--g2)}
+.s-Waiting{background:#6a1b9a}.s-Running{background:var(--blu)}.s-Unload-Pending{background:var(--amb)}.s-Payment-Pending{background:var(--red)}.s-Bill-Company-Done{background:#00838f}.s-Bill-Done{background:var(--g2)}.s-Transporter-Paid{background:#1b5e20}
 .waitl{font-size:13px;margin-top:4px;color:var(--mu)}.waitl.over{color:var(--red);font-weight:700}
 .remrow{display:block;width:100%;text-align:left;border:1.5px solid var(--red);background:#fdecea;color:#8c1c13;border-radius:12px;padding:10px 12px;margin-bottom:8px;font-size:14px;line-height:1.4;font-family:inherit}
 .chips{display:flex;gap:6px;flex-wrap:wrap;justify-content:flex-end}
@@ -114,7 +114,7 @@ input:focus,select:focus,textarea:focus{outline:none;border-color:var(--g2)}
       <div><small>From date</small><input id="f-from" type="date"></div>
       <div><small>To date</small><input id="f-to" type="date"></div>
     </div>
-    <select id="f-st"><option value="">All Trip Status</option><option value="Waiting">Waiting for Loading</option><option value="Running">Running</option><option value="Unload Pending">Unload Pending</option><option value="Payment Pending">Payment Pending</option><option value="Bill Done">Bill to Transporter Done</option></select>
+    <select id="f-st"><option value="">All Trip Status</option><option value="Waiting">Waiting for Loading</option><option value="Running">Running</option><option value="Unload Pending">Unload Pending</option><option value="Bill Company Done">Bill to Company Done</option><option value="Payment Pending">Payment Pending</option><option value="Bill Done">Bill to Transporter Done</option><option value="Transporter Paid">Payment to Transporter Done</option></select>
     <label class="tog"><input type="checkbox" id="f-pend"> Payment pending only</label>
     <button class="big gry" style="height:44px;margin-top:10px;font-size:15px" id="f-clr">Reset Filters</button>
   </div>
@@ -155,7 +155,7 @@ input:focus,select:focus,textarea:focus{outline:none;border-color:var(--g2)}
   <div class="profit" id="t-calc"></div>
 
   <label>Trip Status</label>
-  <select id="t-st"><option value="Waiting">Waiting for Loading</option><option value="Running">Running (on the way)</option><option value="Unload Pending">Unload Pending</option><option value="Payment Pending">Payment Pending</option><option value="Bill Done">Bill to Transporter Done</option></select>
+  <select id="t-st"><option value="Waiting">Waiting for Loading</option><option value="Running">Running (on the way)</option><option value="Unload Pending">Unload Pending</option><option value="Bill Company Done">Bill to Company Done</option><option value="Payment Pending">Payment Pending</option><option value="Bill Done">Bill to Transporter Done</option><option value="Transporter Paid">Payment to Transporter Done</option></select>
   <div id="ws-wrap"><label>Waiting since <i>(date)</i></label><input id="t-ws" type="date"></div>
   <label>Remarks <i>(optional)</i></label><textarea id="t-rm"></textarea>
 
@@ -238,7 +238,7 @@ const KEY='tripbook_v1', MKEY='tripbook_master';
 let trips=[];
 try{trips=JSON.parse(localStorage.getItem(KEY)||'[]')}catch(e){trips=[]}
 const save=()=>{try{localStorage.setItem(KEY,JSON.stringify(trips));return true}catch(e){toast('⚠ Save failed — storage full?');return false}};
-const STL={'Waiting':'Waiting for Loading','Running':'Running','Unload Pending':'Unload Pending','Payment Pending':'Payment Pending','Bill Done':'Bill to Transporter Done'};
+const STL={'Waiting':'Waiting for Loading','Running':'Running','Unload Pending':'Unload Pending','Bill Company Done':'Bill to Company Done','Payment Pending':'Payment Pending','Bill Done':'Bill to Transporter Done','Transporter Paid':'Payment to Transporter Done'};
 const WAITING=['Waiting','Unload Pending'];
 let rem={load:2,unl:2};
 try{const r=JSON.parse(localStorage.getItem('tripbook_rem')||'null');if(r&&r.load>0&&r.unl>0)rem=r}catch(e){}
@@ -380,7 +380,7 @@ $('#fab').onclick=()=>openForm();
 
 /* ---------- trip card ---------- */
 function card(t){
-  const c=calc(t), sc='s-'+String(t.status).replace(' ','-');
+  const c=calc(t), sc='s-'+String(t.status).replace(/ /g,'-');
   const wd=WAITING.includes(t.status)?daysSince(t.waitSince):-1, wover=wd>=0&&wd>=limitFor(t);
   const refs=(t.recvRef?'🔖 Received ref: '+esc(t.recvRef)+'<br>':'')+(t.paidRef?'🔖 Paid ref: '+esc(t.paidRef)+'<br>':'');
   return `<div class="card" data-id="${t.id}">
@@ -512,7 +512,14 @@ function syncWS(){
   $('#ws-wrap').style.display=need?'':'none';
   if(need&&!$('#t-ws').value)$('#t-ws').value=todayStr();
 }
-$('#t-st').addEventListener('change',()=>{$('#t-ws').value='';syncWS()});
+$('#t-st').addEventListener('change',()=>{
+  $('#t-ws').value='';syncWS();
+  if($('#t-st').value==='Transporter Paid'){
+    if(pS==='No'){pS='Yes';setSeg('sg-p','Yes');applySeg('p')}
+    toast('Enter the Paid Ref. No. (UTR) below');
+    setTimeout(()=>{const e=$('#t-pr');e.scrollIntoView({block:'center'});e.focus()},250);
+  }
+});
 function openForm(id){
   editId=id||null;
   const t=id?trips.find(x=>x.id===id):null;
@@ -557,6 +564,12 @@ $('#t-save').onclick=()=>{
   if(qty<=0){toast('⚠ Qty must be more than 0');$('#t-qty').focus();return}
   if(cmR>frR){toast('⚠ Commission per MT is more than freight rate!');$('#t-cm').focus();return}
   const fr=r2(qty*frR),cm=r2(qty*cmR);
+  const newSt=$('#t-st').value,prevT=editId?trips.find(x=>x.id===editId):null;
+  const becamePaid=newSt==='Transporter Paid'&&(!prevT||prevT.status!=='Transporter Paid');
+  if(newSt==='Transporter Paid'){
+    if(num(g('t-pd'))<=0){toast('⚠ Enter Amount Paid to transporter');$('#t-pd').focus();return}
+    if(!g('t-pr')){toast('⚠ Enter Paid Ref. No. (UTR)');$('#t-pr').focus();return}
+  }
   const tv=g('t-tn').split('||');
   const o={
     date:g('t-date'),vehicle:normV(g('t-veh')),from:g('t-from'),to:g('t-to'),omc:g('t-omc'),ba:g('t-ba'),material:g('t-mat'),qty:qty,frRate:frR,commRate:cmR,
@@ -564,16 +577,22 @@ $('#t-save').onclick=()=>{
     recvStatus:rS,recvAmt:num(g('t-rc')),recvRef:g('t-rr'),paidStatus:pS,paidAmt:num(g('t-pd')),paidRef:g('t-pr'),
     status:$('#t-st').value,waitSince:WAITING.includes($('#t-st').value)?(g('t-ws')||todayStr()):'',remarks:g('t-rm')
   };
-  if(editId){const i=trips.findIndex(x=>x.id===editId);trips[i]=Object.assign(trips[i],o)}
-  else{trips.push(Object.assign({id:uid(),created:Date.now()},o))}
-  if(save()){toast('✅ Saved');show('list')}
+  if(becamePaid)o.paidOn=todayStr();
+  let saved;
+  if(editId){const i=trips.findIndex(x=>x.id===editId);trips[i]=Object.assign(trips[i],o);saved=trips[i]}
+  else{saved=Object.assign({id:uid(),created:Date.now()},o);trips.push(saved)}
+  if(save()){toast('✅ Saved');show('list');if(becamePaid)sendWA(saved.id)}
 };
 
 /* ---------- WhatsApp ---------- */
+function payMsg(t,c){
+  return `✅ *PAYMENT DONE*\n📅 Loading: ${fmtD(t.date)}\n🚚 Vehicle: *${t.vehicle}*\n📍 From: ${t.from}\n🏁 To: ${t.to}\n🏢 Company: ${t.party}\n📦 Material: ${matLabel(t)}\n💰 Amount Paid: *₹${Math.round(c.pd).toLocaleString('en-IN')}*\n🔖 UTR / Ref No: *${t.paidRef||'-'}*`+(t.paidOn?`\n🗓 Paid on: ${fmtD(t.paidOn)}`:'')+`\n\nThanks 🙏`;
+}
 function sendWA(id){
   const t=trips.find(x=>x.id===id);if(!t)return;
   const c=calc(t);
-  const msg=`🚛 *TRIP DETAILS*\n📅 Loading: ${fmtD(t.date)}\n🚚 Vehicle: *${t.vehicle}*\n${t.omc?'🛢 OMC: '+t.omc+'\n':''}📍 From: ${t.from}\n🏁 To: ${t.to}\n🏢 Company: ${t.party}\n📦 Material: ${matLabel(t)}`+
+  const msg0=t.status==='Transporter Paid'?payMsg(t,c):null;
+  const msg=msg0||`🚛 *TRIP DETAILS*\n📅 Loading: ${fmtD(t.date)}\n🚚 Vehicle: *${t.vehicle}*\n${t.omc?'🛢 OMC: '+t.omc+'\n':''}📍 From: ${t.from}\n🏁 To: ${t.to}\n🏢 Company: ${t.party}\n📦 Material: ${matLabel(t)}`+
     (c.pd?`\n✅ Paid so far: ₹${Math.round(c.pd).toLocaleString('en-IN')}${t.paidRef?' (Ref: '+t.paidRef+')':''}\n⏳ Balance: ₹${Math.round(c.transDue).toLocaleString('en-IN')}`:'')+
     (t.remarks?`\n📝 ${t.remarks}`:'')+`\n\nThanks 🙏`;
   let p=(t.tphone||'').replace(/\D/g,'');
