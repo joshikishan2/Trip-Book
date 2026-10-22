@@ -36,7 +36,10 @@ h2{font-size:16px;margin:18px 2px 8px}
 .route{margin:4px 0;font-size:15px}
 .meta{color:var(--mu);font-size:13px;line-height:1.5}
 .chip{display:inline-block;font-size:12px;padding:3px 9px;border-radius:12px;color:#fff;font-weight:600}
-.s-Waiting{background:#6a1b9a}.s-Running{background:var(--blu)}.s-Unload-Pending{background:var(--amb)}.s-Payment-Pending{background:var(--red)}.s-Bill-Company-Done{background:#00838f}.s-Bill-Done{background:var(--g2)}.s-Transporter-Paid{background:#1b5e20}
+.s-Waiting{background:#6a1b9a}.s-Running{background:var(--blu)}.s-Unload-Pending{background:var(--amb)}.s-Payment-Pending{background:var(--red)}.s-Bill-Company-Done{background:#00838f}.s-Bill-Done{background:var(--g2)}.s-Transporter-Paid{background:#1b5e20}.s-Transporter-Pending{background:#ef6c00}
+.chkrow{display:flex;align-items:center;gap:12px;font-size:16px;font-weight:600;margin:0 0 8px;padding:12px;border:1.5px solid #c9d3ce;border-radius:12px;background:#fff}
+.chkrow input{width:26px;height:26px;margin:0;flex:none;accent-color:var(--g2)}
+.chkrow:has(input:checked){border-color:var(--g2);background:#e8f5ee}
 .waitl{font-size:13px;margin-top:4px;color:var(--mu)}.waitl.over{color:var(--red);font-weight:700}
 .remrow{display:block;width:100%;text-align:left;border:1.5px solid var(--red);background:#fdecea;color:#8c1c13;border-radius:12px;padding:10px 12px;margin-bottom:8px;font-size:14px;line-height:1.4;font-family:inherit}
 .chips{display:flex;gap:6px;flex-wrap:wrap;justify-content:flex-end}
@@ -114,7 +117,7 @@ input:focus,select:focus,textarea:focus{outline:none;border-color:var(--g2)}
       <div><small>From date</small><input id="f-from" type="date"></div>
       <div><small>To date</small><input id="f-to" type="date"></div>
     </div>
-    <select id="f-st"><option value="">All Trip Status</option><option value="Waiting">Waiting for Loading</option><option value="Running">Running</option><option value="Unload Pending">Unload Pending</option><option value="Bill Company Done">Bill to Company Done</option><option value="Payment Pending">Payment Pending</option><option value="Bill Done">Bill to Transporter Done</option><option value="Transporter Paid">Payment to Transporter Done</option></select>
+    <select id="f-st"><option value="">All Trip Status</option><option value="Waiting">Waiting for Loading</option><option value="Running">Running</option><option value="Unload Pending">Unload Pending</option><option value="Bill Company Done">Bill to Company Done</option><option value="Payment Pending">Payment Pending</option><option value="Bill Done">Bill to Transporter Done</option><option value="Transporter Pending">Payment to Transporter Pending</option><option value="Transporter Paid">Payment to Transporter Done</option></select>
     <label class="tog"><input type="checkbox" id="f-pend"> Payment pending only</label>
     <button class="big gry" style="height:44px;margin-top:10px;font-size:15px" id="f-clr">Reset Filters</button>
   </div>
@@ -156,7 +159,17 @@ input:focus,select:focus,textarea:focus{outline:none;border-color:var(--g2)}
   <div class="profit" id="t-calc"></div>
 
   <label>Trip Status</label>
-  <select id="t-st"><option value="Waiting">Waiting for Loading</option><option value="Running">Running (on the way)</option><option value="Unload Pending">Unload Pending</option><option value="Bill Company Done">Bill to Company Done</option><option value="Payment Pending">Payment Pending</option><option value="Bill Done">Bill to Transporter Done</option><option value="Transporter Paid">Payment to Transporter Done</option></select>
+  <div class="note" style="margin:0 0 8px">Tick all that apply.</div>
+  <div id="t-st-box">
+    <label class="chkrow"><input type="checkbox" value="Waiting"> Waiting for Loading</label>
+    <label class="chkrow"><input type="checkbox" value="Running"> Running (on the way)</label>
+    <label class="chkrow"><input type="checkbox" value="Unload Pending"> Unload Pending</label>
+    <label class="chkrow"><input type="checkbox" value="Bill Company Done"> Bill to Company Done</label>
+    <label class="chkrow"><input type="checkbox" value="Payment Pending"> Payment Pending</label>
+    <label class="chkrow"><input type="checkbox" value="Bill Done"> Bill to Transporter Done</label>
+    <label class="chkrow"><input type="checkbox" value="Transporter Pending"> Payment to Transporter Pending</label>
+    <label class="chkrow"><input type="checkbox" value="Transporter Paid"> Payment to Transporter Done</label>
+  </div>
   <div id="ws-wrap"><label>Waiting since <i>(date)</i></label><input id="t-ws" type="date"></div>
   <label>Remarks <i>(optional)</i></label><textarea id="t-rm"></textarea>
 
@@ -245,7 +258,11 @@ const KEY='tripbook_v1', MKEY='tripbook_master';
 let trips=[];
 try{trips=JSON.parse(localStorage.getItem(KEY)||'[]')}catch(e){trips=[]}
 const save=()=>{try{localStorage.setItem(KEY,JSON.stringify(trips));return true}catch(e){toast('⚠ Save failed — storage full?');return false}};
-const STL={'Waiting':'Waiting for Loading','Running':'Running','Unload Pending':'Unload Pending','Bill Company Done':'Bill to Company Done','Payment Pending':'Payment Pending','Bill Done':'Bill to Transporter Done','Transporter Paid':'Payment to Transporter Done'};
+const STL={'Waiting':'Waiting for Loading','Running':'Running','Unload Pending':'Unload Pending','Bill Company Done':'Bill to Company Done','Payment Pending':'Payment Pending','Bill Done':'Bill to Transporter Done','Transporter Pending':'Payment to Transporter Pending','Transporter Paid':'Payment to Transporter Done'};
+const TRANSIT=['Waiting','Running','Unload Pending'];
+const sts=t=>Array.isArray(t.statuses)?t.statuses:(t.status?[t.status]:[]);
+const hasSt=(t,k)=>sts(t).includes(k);
+const isWaiting=t=>sts(t).some(x=>WAITING.includes(x));
 const WAITING=['Waiting','Unload Pending'];
 let rem={load:2,unl:2};
 try{const r=JSON.parse(localStorage.getItem('tripbook_rem')||'null');if(r&&r.load>0&&r.unl>0)rem=r}catch(e){}
@@ -383,8 +400,9 @@ const isPend=t=>{const c=calc(t);return c.partyDue>0||c.transDue>0};
   if(WAITING.includes(t.status)&&!t.waitSince)t.waitSince=t.date||'';
   ch=true});
   if(ch)try{localStorage.setItem(KEY,JSON.stringify(trips))}catch(e){}})();
+(function(){let ch=false;trips.forEach(t=>{if(!Array.isArray(t.statuses)){t.statuses=t.status?[t.status]:[];ch=true}});if(ch)try{localStorage.setItem(KEY,JSON.stringify(trips))}catch(e){}})();
 const daysSince=d=>{if(!d)return 0;const a=d.split('-'),n=new Date();return Math.max(0,Math.floor((new Date(n.getFullYear(),n.getMonth(),n.getDate())-new Date(+a[0],+a[1]-1,+a[2]))/86400000))};
-const limitFor=t=>t.status==='Waiting'?rem.load:rem.unl;
+const limitFor=t=>hasSt(t,'Waiting')?rem.load:rem.unl;
 
 /* ---------- navigation ---------- */
 function show(v){
@@ -403,16 +421,16 @@ $('#fab').onclick=()=>openForm();
 
 /* ---------- trip card ---------- */
 function card(t){
-  const c=calc(t), sc='s-'+String(t.status).replace(/ /g,'-');
-  const wd=WAITING.includes(t.status)?daysSince(t.waitSince):-1, wover=wd>=0&&wd>=limitFor(t);
+  const c=calc(t);
+  const wd=isWaiting(t)?daysSince(t.waitSince):-1, wover=wd>=0&&wd>=limitFor(t);
   const refs=(t.recvRef?'🔖 Received ref: '+esc(t.recvRef)+'<br>':'')+(t.paidRef?'🔖 Paid ref: '+esc(t.paidRef)+'<br>':'');
   return `<div class="card" data-id="${t.id}">
-    <div class="top"><span class="veh">${esc(t.vehicle)}</span><span class="chip ${sc}">${esc(STL[t.status]||t.status)}</span></div>
+    <div class="top"><span class="veh">${esc(t.vehicle)}</span><span class="chips">${sts(t).map(k=>`<span class="chip s-${k.replace(/ /g,'-')}">${esc(STL[k]||k)}</span>`).join('')}</span></div>
     <div class="route">📍 ${esc(t.from)} → ${esc(t.to)} &nbsp;·&nbsp; 📦 ${esc(matLabel(t))}${t.omc?' &nbsp;·&nbsp; 🛢 '+esc(t.omc):''}${t.ba?' &nbsp;·&nbsp; 🧾 B.A: '+esc(t.ba):''}</div>
     ${t.qty&&t.frRate!=null?`<div class="meta">${fmtQ(t.qty)} MT × ₹${fmtQ(t.frRate)} freight · ₹${fmtQ(t.commRate)} commission per MT</div>`:''}
     ${t.lr?`<div class="meta">🧾 LR/Invoice: <b>${esc(t.lr)}</b></div>`:''}
     <div class="meta">📅 ${fmtD(t.date)} &nbsp; 🏢 ${esc(t.party)}<br>🚚 ${esc(t.tname)} ${t.tphone?'('+esc(t.tphone)+')':''}</div>
-    ${wd>=0?`<div class="waitl${wover?' over':''}">${wover?'⏰':'⏳'} ${t.status==='Waiting'?'Waiting for loading':'Waiting for unloading'} since ${wd} day${wd===1?'':'s'}${t.waitSince?' ('+fmtD(t.waitSince)+')':''}</div>`:''}
+    ${wd>=0?`<div class="waitl${wover?' over':''}">${wover?'⏰':'⏳'} ${hasSt(t,'Waiting')?'Waiting for loading':'Waiting for unloading'} since ${wd} day${wd===1?'':'s'}${t.waitSince?' ('+fmtD(t.waitSince)+')':''}</div>`:''}
     <div class="dues">
       <span class="due">Freight ${inr(c.fr)}</span>
       <span class="due">Commission ${inr(c.cm)}</span>
@@ -447,8 +465,8 @@ function renderBackupBanner(){
 }
 function renderReminders(){
   const box=$('#rem-box');if(!box)return;
-  const al=trips.filter(t=>WAITING.includes(t.status)&&daysSince(t.waitSince)>=limitFor(t)).sort((a,b)=>daysSince(b.waitSince)-daysSince(a.waitSince));
-  box.innerHTML=al.length?'<h2 style="margin-top:0">⏰ Reminders ('+al.length+')</h2>'+al.map(t=>{const d=daysSince(t.waitSince);return '<button type="button" class="remrow" data-rem="'+t.id+'"><b>'+esc(t.vehicle)+'</b> — '+(t.status==='Waiting'?'waiting for loading':'waiting for unloading')+' since <b>'+d+' day'+(d===1?'':'s')+'</b><br>'+esc(t.from)+' → '+esc(t.to)+' · '+esc(t.party)+'</button>'}).join(''):'';
+  const al=trips.filter(t=>isWaiting(t)&&daysSince(t.waitSince)>=limitFor(t)).sort((a,b)=>daysSince(b.waitSince)-daysSince(a.waitSince));
+  box.innerHTML=al.length?'<h2 style="margin-top:0">⏰ Reminders ('+al.length+')</h2>'+al.map(t=>{const d=daysSince(t.waitSince);return '<button type="button" class="remrow" data-rem="'+t.id+'"><b>'+esc(t.vehicle)+'</b> — '+(hasSt(t,'Waiting')?'waiting for loading':'waiting for unloading')+' since <b>'+d+' day'+(d===1?'':'s')+'</b><br>'+esc(t.from)+' → '+esc(t.to)+' · '+esc(t.party)+'</button>'}).join(''):'';
 }
 $('#rem-box').addEventListener('click',e=>{const b=e.target.closest('[data-rem]');if(b)openForm(b.dataset.rem)});
 function renderHome(){
@@ -463,7 +481,7 @@ function renderHome(){
   const d=$('#d-profit');d.textContent=inr(mp);d.className=mp<0?'red':'grn';
   $('#d-coll').textContent=inr(coll);$('#d-pay').textContent=inr(pay);
   $('#d-comm').textContent=inr(month.reduce((s,t)=>s+calc(t).cm,0));
-  $('#d-run').textContent=trips.filter(t=>t.status==='Running').length;
+  $('#d-run').textContent=trips.filter(t=>hasSt(t,'Running')).length;
   $('#today-list').innerHTML=today.length?today.map(card).join(''):'<div class="empty">No trips today</div>';
   const pend=trips.filter(isPend).sort((a,b)=>(b.date||'').localeCompare(a.date||'')).slice(0,10);
   $('#pend-list').innerHTML=pend.length?pend.map(card).join(''):'<div class="empty">No pending payments 🎉</div>';
@@ -487,7 +505,7 @@ function filtered(){
     if(q&&!(`${t.vehicle} ${t.party} ${t.tname} ${t.omc||''} ${t.ba||''} ${t.lr||''}`.toLowerCase().includes(q)))return false;
     if(fr&&t.date<fr)return false;
     if(to&&t.date>to)return false;
-    if(st&&t.status!==st)return false;
+    if(st&&!hasSt(t,st))return false;
     if(pe&&!isPend(t))return false;
     return true;
   }).sort((a,b)=>(b.date||'').localeCompare(a.date||'')||b.created-a.created);
@@ -531,17 +549,27 @@ $$('#sg-p button').forEach(b=>b.onclick=()=>{pS=b.dataset.v;setSeg('sg-p',pS);ap
 }));
 ['t-rc','t-pd'].forEach(i=>$('#'+i).addEventListener('input',recalcForm));
 
+const getSts=()=>$$('#t-st-box input:checked').map(i=>i.value);
+const setSts=a=>$$('#t-st-box input').forEach(i=>{i.checked=a.includes(i.value)});
+const uncheck=v=>{const i=$('#t-st-box input[value="'+v+'"]');if(i)i.checked=false};
 function syncWS(){
-  const need=WAITING.includes($('#t-st').value);
+  const need=getSts().some(x=>WAITING.includes(x));
   $('#ws-wrap').style.display=need?'':'none';
   if(need&&!$('#t-ws').value)$('#t-ws').value=todayStr();
 }
-$('#t-st').addEventListener('change',()=>{
-  $('#t-ws').value='';syncWS();
-  if($('#t-st').value==='Transporter Paid'){
+$('#t-st-box').addEventListener('change',e=>{
+  const i=e.target;if(i.type!=='checkbox')return;
+  const v=i.value;
+  if(i.checked){
+    if(TRANSIT.includes(v)){TRANSIT.filter(x=>x!==v).forEach(uncheck);$('#t-ws').value=''}
+    if(v==='Transporter Paid')uncheck('Transporter Pending');
+    if(v==='Transporter Pending')uncheck('Transporter Paid');
+  }else if(TRANSIT.includes(v))$('#t-ws').value='';
+  syncWS();
+  if(i.checked&&v==='Transporter Paid'){
     if(pS==='No'){pS='Yes';setSeg('sg-p','Yes');applySeg('p')}
     toast('Enter the Paid Ref. No. (UTR) below');
-    setTimeout(()=>{const e=$('#t-pr');e.scrollIntoView({block:'center'});e.focus()},250);
+    setTimeout(()=>{const e2=$('#t-pr');e2.scrollIntoView({block:'center'});e2.focus()},250);
   }
 });
 function openForm(id){
@@ -574,7 +602,7 @@ function openForm(id){
   $('#t-rr').value=t?(t.recvRef||''):'';
   $('#t-pd').value=t?t.paidAmt:0;
   $('#t-pr').value=t?(t.paidRef||''):'';
-  $('#t-st').value=t?t.status:'Running';
+  setSts(t?sts(t):['Running']);
   $('#t-ws').value=t?(t.waitSince||''):'';
   syncWS();
   $('#t-rm').value=t?t.remarks:'';
@@ -589,9 +617,10 @@ $('#t-save').onclick=()=>{
   if(qty<=0){toast('⚠ Qty must be more than 0');$('#t-qty').focus();return}
   if(cmR>frR){toast('⚠ Commission per MT is more than freight rate!');$('#t-cm').focus();return}
   const fr=r2(qty*frR),cm=r2(qty*cmR);
-  const newSt=$('#t-st').value,prevT=editId?trips.find(x=>x.id===editId):null;
-  const becamePaid=newSt==='Transporter Paid'&&(!prevT||prevT.status!=='Transporter Paid');
-  if(newSt==='Transporter Paid'){
+  const newSts=getSts(),prevT=editId?trips.find(x=>x.id===editId):null;
+  if(!newSts.length){toast('⚠ Tick at least one Trip Status');return}
+  const becamePaid=newSts.includes('Transporter Paid')&&!(prevT&&hasSt(prevT,'Transporter Paid'));
+  if(newSts.includes('Transporter Paid')){
     if(num(g('t-pd'))<=0){toast('⚠ Enter Amount Paid to transporter');$('#t-pd').focus();return}
     if(!g('t-pr')){toast('⚠ Enter Paid Ref. No. (UTR)');$('#t-pr').focus();return}
   }
@@ -601,7 +630,7 @@ $('#t-save').onclick=()=>{
     date:g('t-date'),vehicle:normV(g('t-veh')),from:g('t-from'),to:g('t-to'),omc:g('t-omc'),ba:g('t-ba'),material:g('t-mat'),qty:qty,frRate:frR,commRate:cmR,
     freight:fr,comm:cm,party:g('t-party'),tname:tv[0],tphone:tv[1]||'',
     recvStatus:rS,recvAmt:num(g('t-rc')),recvRef:g('t-rr'),paidStatus:pS,paidAmt:num(g('t-pd')),paidRef:g('t-pr'),
-    status:$('#t-st').value,waitSince:WAITING.includes($('#t-st').value)?(g('t-ws')||todayStr()):'',remarks:g('t-rm')
+    statuses:newSts,status:newSts[0],waitSince:newSts.some(x=>WAITING.includes(x))?(g('t-ws')||todayStr()):'',remarks:g('t-rm')
   };
   if(becamePaid)o.paidOn=todayStr();
   let saved;
@@ -617,7 +646,7 @@ function payMsg(t,c){
 function sendWA(id){
   const t=trips.find(x=>x.id===id);if(!t)return;
   const c=calc(t);
-  const msg0=t.status==='Transporter Paid'?payMsg(t,c):null;
+  const msg0=hasSt(t,'Transporter Paid')?payMsg(t,c):null;
   const msg=msg0||`🚛 *TRIP DETAILS*\n📅 Loading: ${fmtD(t.date)}\n🚚 Vehicle: *${t.vehicle}*\n${t.omc?'🛢 OMC: '+t.omc+'\n':''}📍 From: ${t.from}\n🏁 To: ${t.to}\n🏢 Company: ${t.party}\n📦 Material: ${matLabel(t)}${t.lr?'\n🧾 LR/Invoice No: '+t.lr:''}`+
     (c.pd?`\n✅ Paid so far: ₹${Math.round(c.pd).toLocaleString('en-IN')}${t.paidRef?' (Ref: '+t.paidRef+')':''}\n⏳ Balance: ₹${Math.round(c.transDue).toLocaleString('en-IN')}`:'')+
     (t.remarks?`\n📝 ${t.remarks}`:'')+`\n\nThanks 🙏`;
@@ -633,7 +662,7 @@ function rangeTrips(){
 }
 const HEAD=['Date','Vehicle','From','To','Material/Qty','Total Freight','Commission','Party','Transporter','Transporter Phone','Received Status','Amount Received','Paid Status','Amount Paid','Profit (Received-Paid)','Party Balance','Transporter Balance','Status','Remarks','OMC','Received Ref No','Paid Ref No','B.A','Payment Status','Qty (MT)','Freight Rate/MT','Commission/MT','LR/Invoice No'];
 const TOT=[5,6,11,13,14,15,16];
-function rows(list){return list.map(t=>{const c=calc(t);return[fmtD(t.date),t.vehicle,t.from,t.to,matLabel(t),c.fr,c.cm,t.party,t.tname,t.tphone,t.recvStatus,c.rc,t.paidStatus,c.pd,c.profit,c.partyDue,c.transDue,STL[t.status]||t.status,t.remarks,t.omc||'',t.recvRef||'',t.paidRef||'',t.ba||'',isPend(t)?'Payment Pending':'Payments Done',t.qty||'',t.frRate!=null?t.frRate:'',t.commRate!=null?t.commRate:'',t.lr||'']})}
+function rows(list){return list.map(t=>{const c=calc(t);return[fmtD(t.date),t.vehicle,t.from,t.to,matLabel(t),c.fr,c.cm,t.party,t.tname,t.tphone,t.recvStatus,c.rc,t.paidStatus,c.pd,c.profit,c.partyDue,c.transDue,sts(t).map(k=>STL[k]||k).join(', '),t.remarks,t.omc||'',t.recvRef||'',t.paidRef||'',t.ba||'',isPend(t)?'Payment Pending':'Payments Done',t.qty||'',t.frRate!=null?t.frRate:'',t.commRate!=null?t.commRate:'',t.lr||'']})}
 
 /* real .xlsx writer (no library): minimal ZIP (stored) + SpreadsheetML */
 const CRCT=(()=>{const t=[];for(let n=0;n<256;n++){let c=n;for(let k=0;k<8;k++)c=c&1?0xEDB88320^(c>>>1):c>>>1;t[n]=c>>>0}return t})();
