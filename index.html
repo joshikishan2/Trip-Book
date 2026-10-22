@@ -131,7 +131,7 @@ input:focus,select:focus,textarea:focus{outline:none;border-color:var(--g2)}
   <label>Loading Terminal (From) *</label><select id="t-from"></select>
   <label>Destination (To) *</label><input id="t-to" placeholder="Ahmedabad">
   <label>OMC *</label>
-  <select id="t-omc"><option value="">-- Select OMC --</option><option>IOCL</option><option>BPCL</option><option>HPCL</option></select>
+  <select id="t-omc"></select>
   <label>Material *</label><input id="t-mat" placeholder="LPG">
   <label>Qty (MT) *</label><input id="t-qty" type="number" inputmode="decimal" placeholder="20">
   <label>LR No. / Invoice No. <i>(optional)</i></label><input id="t-lr" placeholder="LR or invoice number">
@@ -185,6 +185,12 @@ input:focus,select:focus,textarea:focus{outline:none;border-color:var(--g2)}
     <input id="mm-in" placeholder="e.g. Mundra LPG Terminal">
     <button class="big addbtn" id="mm-add" type="button">➕ Add Terminal</button>
     <div id="m-term"></div>
+  </div>
+  <div class="mc">
+    <h3>🛢 OMC</h3>
+    <input id="mo-in" placeholder="e.g. IOCL">
+    <button class="big addbtn" id="mo-add" type="button">➕ Add OMC</button>
+    <div id="m-omc"></div>
   </div>
   <div class="mc">
     <h3>🧾 B.A</h3>
@@ -262,11 +268,16 @@ let tt;function toast(m){const t=$('#toast');t.textContent=m;t.classList.add('on
 const normV=v=>String(v||'').toUpperCase().replace(/\s+/g,'');
 
 /* ---------- master lists (vehicles, transporters, terminals) ---------- */
-let master={veh:[],trn:[],term:[],ba:[]};
+let master={veh:[],trn:[],term:[],ba:[],omc:[]};
 const saveM=()=>{try{localStorage.setItem(MKEY,JSON.stringify(master))}catch(e){}};
+function seedOmc(){
+  ['IOCL','BPCL','HPCL'].forEach(v=>{if(!master.omc.includes(v))master.omc.push(v)});
+  trips.forEach(t=>{if(t.omc&&!master.omc.some(x=>x.toLowerCase()===String(t.omc).toLowerCase()))master.omc.push(t.omc)});
+}
 (function(){
   let raw=null;try{raw=localStorage.getItem(MKEY)}catch(e){}
-  if(raw){try{const m=JSON.parse(raw);master.veh=m.veh||[];master.trn=m.trn||[];master.term=m.term||[];master.ba=m.ba||[]}catch(e){}return}
+  if(raw){try{const m=JSON.parse(raw);master.veh=m.veh||[];master.trn=m.trn||[];master.term=m.term||[];master.ba=m.ba||[];
+    if(Array.isArray(m.omc))master.omc=m.omc;else{seedOmc();saveM()}}catch(e){}return}
   // first run only: build lists from existing trips (and the earlier vehicle list, if any)
   let old=null;try{old=JSON.parse(localStorage.getItem('tripbook_veh')||'null')}catch(e){}
   master.veh=Array.isArray(old)?old.slice():[];
@@ -276,6 +287,7 @@ const saveM=()=>{try{localStorage.setItem(MKEY,JSON.stringify(master))}catch(e){
     if(t.from&&!master.term.some(x=>x.toLowerCase()===String(t.from).toLowerCase()))master.term.push(t.from);
     if(t.ba&&!master.ba.includes(t.ba))master.ba.push(t.ba);
   });
+  seedOmc();
   saveM();
 })();
 
@@ -290,6 +302,8 @@ function renderMaster(){
   $('#m-trn').innerHTML=T.length?T.map(x=>mrow('trn',x.n,x.n+(x.p?'  —  '+x.p:''))).join(''):'<div class="note">No transporters yet.</div>';
   const M=[...master.term].sort((a,b)=>a.localeCompare(b));
   $('#m-term').innerHTML=M.length?M.map(x=>mrow('term',x,x)).join(''):'<div class="note">No terminals yet.</div>';
+  const O=[...master.omc].sort((a,b)=>a.localeCompare(b));
+  $('#m-omc').innerHTML=O.length?O.map(x=>mrow('omc',x,x)).join(''):'<div class="note">No OMC yet.</div>';
   const B=[...master.ba].sort((a,b)=>a.localeCompare(b));
   $('#m-ba').innerHTML=B.length?B.map(x=>mrow('ba',x,x)).join(''):'<div class="note">No B.A entries yet.</div>';
 }
@@ -299,9 +313,16 @@ $('#v-master').addEventListener('click',e=>{
   if(t==='veh')master.veh=master.veh.filter(x=>x!==k);
   else if(t==='trn')master.trn=master.trn.filter(x=>x.n!==k);
   else if(t==='ba')master.ba=master.ba.filter(x=>x!==k);
+  else if(t==='omc')master.omc=master.omc.filter(x=>x!==k);
   else master.term=master.term.filter(x=>x!==k);
   saveM();renderMaster();toast('Deleted: '+k);
 });
+$('#mo-add').onclick=()=>{
+  const v=$('#mo-in').value.trim().toUpperCase();
+  if(!v)return toast('Enter OMC name');
+  if(master.omc.some(x=>x.toLowerCase()===v.toLowerCase()))return toast('Already in the list');
+  master.omc.push(v);saveM();$('#mo-in').value='';renderMaster();toast('✅ '+v+' added');
+};
 $('#mb-add').onclick=()=>{
   const v=$('#mb-in').value.trim();
   if(!v)return toast('Enter B.A name');
@@ -338,6 +359,7 @@ function fillSel(id,items,cur,ph){
   $(id).value=cur?cur.v:'';
 }
 const fillVeh=v=>{v=normV(v);fillSel('#t-veh',[...master.veh].sort().map(x=>({v:x,l:x})),v?{v,l:v}:null,'-- Select vehicle --')};
+const fillOMC=v=>fillSel('#t-omc',[...master.omc].sort().map(x=>({v:x,l:x})),v?{v,l:v}:null,'-- Select OMC --');
 const fillBA=v=>fillSel('#t-ba',[...master.ba].sort().map(x=>({v:x,l:x})),v?{v,l:v}:null,'-- Select B.A --');
 const fillTerm=v=>fillSel('#t-from',[...master.term].sort().map(x=>({v:x,l:x})),v?{v,l:v}:null,'-- Select terminal --');
 const fillTrn=(n,p)=>fillSel('#t-tn',[...master.trn].sort((a,b)=>a.n.localeCompare(b.n)).map(x=>({v:x.n+'||'+(x.p||''),l:x.n+(x.p?' — '+x.p:'')})),n?{v:n+'||'+(p||''),l:n+(p?' — '+p:'')}:null,'-- Select transporter --');
@@ -530,9 +552,9 @@ function openForm(id){
   fillVeh(t?t.vehicle:'');
   fillTerm(t?t.from:'');
   fillBA(t?(t.ba||''):'');
+  fillOMC(t?(t.omc||''):'');
   fillTrn(t?t.tname:'',t?t.tphone:'');
   $('#t-to').value=t?t.to:'';
-  $('#t-omc').value=t?(t.omc||''):'';
   $('#t-mat').value=t?t.material:'';
   $('#t-lr').value=t?(t.lr||''):'';
   {
@@ -694,6 +716,7 @@ $('#b-file').onchange=e=>{
         (d.master.trn||[]).forEach(x=>{if(x&&x.n&&!master.trn.some(y=>y.n===x.n))master.trn.push(x)});
         (d.master.term||[]).forEach(v=>{if(!master.term.includes(v))master.term.push(v)});
         (d.master.ba||[]).forEach(v=>{if(!master.ba.includes(v))master.ba.push(v)});
+        (d.master.omc||[]).forEach(v=>{if(!master.omc.includes(v))master.omc.push(v)});
         saveM();
       }
       save();toast(n+' new trips added');renderExportInfo();
