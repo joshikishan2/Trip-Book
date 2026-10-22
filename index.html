@@ -109,7 +109,7 @@ input:focus,select:focus,textarea:focus{outline:none;border-color:var(--g2)}
   <div class="filters">
     <div class="mbar"><button id="m-prev" type="button">◀</button><input id="f-month" type="month"><button id="m-next" type="button">▶</button></div>
     <button class="big alt" style="height:40px;margin:0 0 8px;font-size:14px" id="m-all" type="button">Show all months</button>
-    <input id="f-q" type="search" placeholder="🔍 Vehicle / Party / Transporter / OMC">
+    <input id="f-q" type="search" placeholder="🔍 Vehicle / Party / Transporter / OMC / LR no.">
     <div class="row2">
       <div><small>From date</small><input id="f-from" type="date"></div>
       <div><small>To date</small><input id="f-to" type="date"></div>
@@ -134,6 +134,7 @@ input:focus,select:focus,textarea:focus{outline:none;border-color:var(--g2)}
   <select id="t-omc"><option value="">-- Select OMC --</option><option>IOCL</option><option>BPCL</option><option>HPCL</option></select>
   <label>Material *</label><input id="t-mat" placeholder="LPG">
   <label>Qty (MT) *</label><input id="t-qty" type="number" inputmode="decimal" placeholder="20">
+  <label>LR No. / Invoice No. <i>(optional)</i></label><input id="t-lr" placeholder="LR or invoice number">
   <div class="row2">
     <div><label>Freight Rate ₹/MT *</label><input id="t-fr" type="number" inputmode="decimal" placeholder="0"></div>
     <div><label>My Commission ₹/MT *</label><input id="t-cm" type="number" inputmode="decimal" placeholder="0"></div>
@@ -387,6 +388,7 @@ function card(t){
     <div class="top"><span class="veh">${esc(t.vehicle)}</span><span class="chip ${sc}">${esc(STL[t.status]||t.status)}</span></div>
     <div class="route">📍 ${esc(t.from)} → ${esc(t.to)} &nbsp;·&nbsp; 📦 ${esc(matLabel(t))}${t.omc?' &nbsp;·&nbsp; 🛢 '+esc(t.omc):''}${t.ba?' &nbsp;·&nbsp; 🧾 B.A: '+esc(t.ba):''}</div>
     ${t.qty&&t.frRate!=null?`<div class="meta">${fmtQ(t.qty)} MT × ₹${fmtQ(t.frRate)} freight · ₹${fmtQ(t.commRate)} commission per MT</div>`:''}
+    ${t.lr?`<div class="meta">🧾 LR/Invoice: <b>${esc(t.lr)}</b></div>`:''}
     <div class="meta">📅 ${fmtD(t.date)} &nbsp; 🏢 ${esc(t.party)}<br>🚚 ${esc(t.tname)} ${t.tphone?'('+esc(t.tphone)+')':''}</div>
     ${wd>=0?`<div class="waitl${wover?' over':''}">${wover?'⏰':'⏳'} ${t.status==='Waiting'?'Waiting for loading':'Waiting for unloading'} since ${wd} day${wd===1?'':'s'}${t.waitSince?' ('+fmtD(t.waitSince)+')':''}</div>`:''}
     <div class="dues">
@@ -460,7 +462,7 @@ function filtered(){
   const mo=$('#f-month').value,q=$('#f-q').value.trim().toLowerCase(),fr=$('#f-from').value,to=$('#f-to').value,st=$('#f-st').value,pe=$('#f-pend').checked;
   return trips.filter(t=>{
     if(mo&&!(t.date||'').startsWith(mo))return false;
-    if(q&&!(`${t.vehicle} ${t.party} ${t.tname} ${t.omc||''} ${t.ba||''}`.toLowerCase().includes(q)))return false;
+    if(q&&!(`${t.vehicle} ${t.party} ${t.tname} ${t.omc||''} ${t.ba||''} ${t.lr||''}`.toLowerCase().includes(q)))return false;
     if(fr&&t.date<fr)return false;
     if(to&&t.date>to)return false;
     if(st&&t.status!==st)return false;
@@ -532,6 +534,7 @@ function openForm(id){
   $('#t-to').value=t?t.to:'';
   $('#t-omc').value=t?(t.omc||''):'';
   $('#t-mat').value=t?t.material:'';
+  $('#t-lr').value=t?(t.lr||''):'';
   {
     let q='',fr='',cm='';
     if(t){
@@ -572,6 +575,7 @@ $('#t-save').onclick=()=>{
   }
   const tv=g('t-tn').split('||');
   const o={
+    lr:g('t-lr'),
     date:g('t-date'),vehicle:normV(g('t-veh')),from:g('t-from'),to:g('t-to'),omc:g('t-omc'),ba:g('t-ba'),material:g('t-mat'),qty:qty,frRate:frR,commRate:cmR,
     freight:fr,comm:cm,party:g('t-party'),tname:tv[0],tphone:tv[1]||'',
     recvStatus:rS,recvAmt:num(g('t-rc')),recvRef:g('t-rr'),paidStatus:pS,paidAmt:num(g('t-pd')),paidRef:g('t-pr'),
@@ -586,13 +590,13 @@ $('#t-save').onclick=()=>{
 
 /* ---------- WhatsApp ---------- */
 function payMsg(t,c){
-  return `✅ *PAYMENT DONE*\n📅 Loading: ${fmtD(t.date)}\n🚚 Vehicle: *${t.vehicle}*\n📍 From: ${t.from}\n🏁 To: ${t.to}\n🏢 Company: ${t.party}\n📦 Material: ${matLabel(t)}\n💰 Amount Paid: *₹${Math.round(c.pd).toLocaleString('en-IN')}*\n🔖 UTR / Ref No: *${t.paidRef||'-'}*`+(t.paidOn?`\n🗓 Paid on: ${fmtD(t.paidOn)}`:'')+`\n\nThanks 🙏`;
+  return `✅ *PAYMENT DONE*\n📅 Loading: ${fmtD(t.date)}\n🚚 Vehicle: *${t.vehicle}*\n📍 From: ${t.from}\n🏁 To: ${t.to}\n🏢 Company: ${t.party}\n📦 Material: ${matLabel(t)}${t.lr?'\n🧾 LR/Invoice No: '+t.lr:''}\n💰 Amount Paid: *₹${Math.round(c.pd).toLocaleString('en-IN')}*\n🔖 UTR / Ref No: *${t.paidRef||'-'}*`+(t.paidOn?`\n🗓 Paid on: ${fmtD(t.paidOn)}`:'')+`\n\nThanks 🙏`;
 }
 function sendWA(id){
   const t=trips.find(x=>x.id===id);if(!t)return;
   const c=calc(t);
   const msg0=t.status==='Transporter Paid'?payMsg(t,c):null;
-  const msg=msg0||`🚛 *TRIP DETAILS*\n📅 Loading: ${fmtD(t.date)}\n🚚 Vehicle: *${t.vehicle}*\n${t.omc?'🛢 OMC: '+t.omc+'\n':''}📍 From: ${t.from}\n🏁 To: ${t.to}\n🏢 Company: ${t.party}\n📦 Material: ${matLabel(t)}`+
+  const msg=msg0||`🚛 *TRIP DETAILS*\n📅 Loading: ${fmtD(t.date)}\n🚚 Vehicle: *${t.vehicle}*\n${t.omc?'🛢 OMC: '+t.omc+'\n':''}📍 From: ${t.from}\n🏁 To: ${t.to}\n🏢 Company: ${t.party}\n📦 Material: ${matLabel(t)}${t.lr?'\n🧾 LR/Invoice No: '+t.lr:''}`+
     (c.pd?`\n✅ Paid so far: ₹${Math.round(c.pd).toLocaleString('en-IN')}${t.paidRef?' (Ref: '+t.paidRef+')':''}\n⏳ Balance: ₹${Math.round(c.transDue).toLocaleString('en-IN')}`:'')+
     (t.remarks?`\n📝 ${t.remarks}`:'')+`\n\nThanks 🙏`;
   let p=(t.tphone||'').replace(/\D/g,'');
@@ -605,9 +609,9 @@ function rangeTrips(){
   const f=$('#x-from').value,t=$('#x-to').value;
   return trips.filter(x=>(!f||x.date>=f)&&(!t||x.date<=t)).sort((a,b)=>(a.date||'').localeCompare(b.date||''));
 }
-const HEAD=['Date','Vehicle','From','To','Material/Qty','Total Freight','Commission','Party','Transporter','Transporter Phone','Received Status','Amount Received','Paid Status','Amount Paid','Profit (Received-Paid)','Party Balance','Transporter Balance','Status','Remarks','OMC','Received Ref No','Paid Ref No','B.A','Payment Status','Qty (MT)','Freight Rate/MT','Commission/MT'];
+const HEAD=['Date','Vehicle','From','To','Material/Qty','Total Freight','Commission','Party','Transporter','Transporter Phone','Received Status','Amount Received','Paid Status','Amount Paid','Profit (Received-Paid)','Party Balance','Transporter Balance','Status','Remarks','OMC','Received Ref No','Paid Ref No','B.A','Payment Status','Qty (MT)','Freight Rate/MT','Commission/MT','LR/Invoice No'];
 const TOT=[5,6,11,13,14,15,16];
-function rows(list){return list.map(t=>{const c=calc(t);return[fmtD(t.date),t.vehicle,t.from,t.to,matLabel(t),c.fr,c.cm,t.party,t.tname,t.tphone,t.recvStatus,c.rc,t.paidStatus,c.pd,c.profit,c.partyDue,c.transDue,STL[t.status]||t.status,t.remarks,t.omc||'',t.recvRef||'',t.paidRef||'',t.ba||'',isPend(t)?'Payment Pending':'Payments Done',t.qty||'',t.frRate!=null?t.frRate:'',t.commRate!=null?t.commRate:'']})}
+function rows(list){return list.map(t=>{const c=calc(t);return[fmtD(t.date),t.vehicle,t.from,t.to,matLabel(t),c.fr,c.cm,t.party,t.tname,t.tphone,t.recvStatus,c.rc,t.paidStatus,c.pd,c.profit,c.partyDue,c.transDue,STL[t.status]||t.status,t.remarks,t.omc||'',t.recvRef||'',t.paidRef||'',t.ba||'',isPend(t)?'Payment Pending':'Payments Done',t.qty||'',t.frRate!=null?t.frRate:'',t.commRate!=null?t.commRate:'',t.lr||'']})}
 
 /* real .xlsx writer (no library): minimal ZIP (stored) + SpreadsheetML */
 const CRCT=(()=>{const t=[];for(let n=0;n<256;n++){let c=n;for(let k=0;k<8;k++)c=c&1?0xEDB88320^(c>>>1):c>>>1;t[n]=c>>>0}return t})();
