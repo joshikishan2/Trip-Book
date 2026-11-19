@@ -202,7 +202,7 @@ table.t td.r,table.t th.r{text-align:right}
     <div><label>Freight Rate ₹/MT *</label><input id="t-fr" type="number" inputmode="decimal" placeholder="0"></div>
     <div><label>My Commission ₹/MT *</label><input id="t-cm" type="number" inputmode="decimal" placeholder="0"></div>
   </div>
-  <label>Client (Company) *</label><select id="t-party"></select>
+  <label>Client (Company) *</label><input id="t-party" list="cli-dl" placeholder="Client / company name" autocomplete="off"><datalist id="cli-dl"></datalist>
   <label>Transporter *</label><select id="t-tn"></select>
 
   <label>Trip Source * <i>(choose every time)</i></label>
@@ -264,7 +264,7 @@ table.t td.r,table.t th.r{text-align:right}
 <!-- MASTERS -->
 <section class="view" id="v-master">
   <h2 style="font-size:19px;margin-top:4px">🗂 Masters</h2>
-  <div class="tabs" id="m-tabs"><button data-m="cli" class="on">Clients</button><button data-m="veh">Vehicles</button><button data-m="drv">Drivers</button><button data-m="ba">B.A</button><button data-m="oth">Transporter / Terminal / OMC</button><button data-m="set">Settings &amp; Data</button></div>
+  <div class="tabs" id="m-tabs"><button data-m="veh" class="on">Vehicles</button><button data-m="drv">Drivers</button><button data-m="ba">B.A</button><button data-m="oth">Transporter / Terminal / OMC</button><button data-m="set">Settings &amp; Data</button></div>
   <div id="m-body"></div>
 </section>
 
@@ -727,7 +727,7 @@ function renderList(){
 $('#f-clr').onclick=()=>{$('#f-month').value=todayStr().slice(0,7);['#f-q','#f-from','#f-to','#f-st','#f-stage','#f-drv','#f-src','#f-bill'].forEach(s=>$(s).value='');$('#f-pend').checked=false;renderList()};
 
 /* ---------- Masters ---------- */
-let mTab='cli';
+let mTab='drv';
 const KIND={
   cli:{arr:()=>db.clients,title:'Client',idf:'clientId',trf:'party'},
   drv:{arr:()=>db.drivers,title:'Driver',idf:'driverId',trf:'driverName'},
@@ -1047,10 +1047,10 @@ function quickAdd(k,selId,fillFn){
   personForm(k,null,rec=>{closeModal();fillFn(rec.id);$(selId).value=rec.id});
 }
 const addOpt=(id,label)=>{const s=$(id);s.insertAdjacentHTML('beforeend','<option value="'+NEWOPT+'">'+label+'</option>')};
-function fillClient(v){fillSel('#t-party',cliOpts(v),v&&cliById(v)?{v,l:cliById(v).name}:null,'-- Select client --');addOpt('#t-party','➕ Add new client…')}
+function fillClient(v){$('#t-party').value=v&&cliById(v)?cliById(v).name:'';$('#cli-dl').innerHTML=db.clients.slice().sort(byName).map(c=>'<option value="'+esc(c.name)+'">').join('')}
+function clientFor(name){name=name.trim();let c=db.clients.find(x=>x.name.toLowerCase()===name.toLowerCase());if(!c){c={id:'c'+uid(),name,address:'',gstin:'',phone:'',active:true};db.clients.push(c);saveDB()}return c}
 function fillDriver(v){fillSel('#t-drv',drvOpts(v),v&&drvById(v)?{v,l:drvById(v).name}:null,'-- Select driver --');addOpt('#t-drv','➕ Add new driver…')}
 function fillBAsel(v){fillSel('#t-ba',baOpts(v),v&&baById(v)?{v,l:baById(v).name}:null,'-- Select B.A --');addOpt('#t-ba','➕ Add new B.A…')}
-$('#t-party').addEventListener('change',e=>{if(e.target.value===NEWOPT){e.target.value='';quickAdd('cli','#t-party',fillClient)}});
 $('#t-drv').addEventListener('change',e=>{if(e.target.value===NEWOPT){e.target.value='';quickAdd('drv','#t-drv',fillDriver)}});
 $('#t-ba').addEventListener('change',e=>{if(e.target.value===NEWOPT){e.target.value='';quickAdd('ba','#t-ba',fillBAsel)}});
 
@@ -1124,7 +1124,7 @@ $('#t-save').onclick=()=>{
     if(!paids[paids.length-1].ref){toast('⚠ Enter Paid Ref. No. (UTR)');return}
   }
   const tv=g('t-tn').split('||');
-  const cl=cliById(g('t-party')),dr=drvById(g('t-drv')),ba=baById(g('t-ba'));
+  const cl=clientFor(g('t-party')),dr=drvById(g('t-drv')),ba=baById(g('t-ba'));
   const o={
     lr:g('t-lr'),date:g('t-date'),vehicle:normV(g('t-veh')),from:g('t-from'),to:g('t-to'),omc:g('t-omc'),material:g('t-mat'),qty:qty,frRate:frR,commRate:cmR,
     freight:fr,comm:cm,clientId:cl?cl.id:'',party:cl?cl.name:'',tname:tv[0],tphone:tv[1]||'',
@@ -1467,7 +1467,7 @@ function billNew(){
   let h='<div class="filters"><label style="margin-top:0">1. Select client</label><select id="b-cli"><option value="">-- Select client --</option>'+cl.map(c=>'<option value="'+c.id+'"'+(c.id===bCli?' selected':'')+'>'+esc(c.name)+'</option>').join('')+'</select>';
   if(bCli){
     const c=cliById(bCli);
-    if(c&&(!c.gstin||!c.address))h+='<div class="note" style="color:var(--red)">⚠ This client has no '+(!c.gstin?'GSTIN ':'')+(!c.address?'address ':'')+'saved. Add it in Masters → Clients so it prints on the bill.</div>';
+    if(c&&(!c.gstin||!c.address))h+='<div class="note">GSTIN / address are asked when you generate the bill and remembered for next time.</div>';
     h+='<label>2. Tax type</label><div class="seg" id="b-taxseg"><button data-v="all" class="'+(bTax==='all'?'on':'')+'">All</button><button data-v="GST" class="'+(bTax==='GST'?'on':'')+'">GST</button><button data-v="RCM" class="'+(bTax==='RCM'?'on':'')+'">RCM</button></div>'+
      '<label class="tog" style="margin-top:12px"><input type="checkbox" id="b-old"'+(bOld?' checked':'')+'> Also show trips already marked “Bill to Company Done” (old, billed outside)</label>';
   }
@@ -1521,7 +1521,7 @@ function previewGen(){
   const mode=sel[0].taxMode;
   const sep=$('#b-sep')?$('#b-sep').checked:bSep;
   modal('<h3>🧾 Generate invoice</h3><div class="kv"><span>Client</span><b style="text-align:right">'+esc(c.name)+'</b></div><div class="kv"><span>Type</span><b>'+(mode==='RCM'?'RCM (no GST charged)':'GST ('+db.settings.firm.cgst+'% + '+db.settings.firm.sgst+'%)')+'</b></div><div class="kv"><span>Trips</span><b>'+sel.length+(sep?' (separate bills)':' (one consolidated bill)')+'</b></div>'+
-   '<label>Bill date</label><input id="g-d" type="date" value="'+todayStr()+'"><label>Period shown on bill</label><input id="g-p" value="'+esc(per)+'">'+
+   '<label>Client GSTIN</label><input id="g-g" value="'+esc(c.gstin||'')+'" maxlength="15" autocapitalize="characters"><label>Client address <i>(optional)</i></label><input id="g-a" value="'+esc(c.address||'')+'"><label>Bill date</label><input id="g-d" type="date" value="'+todayStr()+'"><label>Period shown on bill</label><input id="g-p" value="'+esc(per)+'">'+
    '<div class="note" id="g-no" style="font-size:15px"></div>'+
    '<div class="note">The invoice number is taken only after the bill is created successfully. If anything fails, no trip is changed.</div>'+
    '<div class="row2"><button class="big gry" id="g-no2" style="margin-top:12px">Cancel</button><button class="big" id="g-ok" style="margin-top:12px">Generate</button></div>',m=>{
@@ -1530,7 +1530,7 @@ function previewGen(){
     m.querySelector('#g-no2').onclick=closeModal;
     m.querySelector('#g-ok').onclick=()=>{
       const d=m.querySelector('#g-d').value;if(!d)return toast('Pick bill date');
-      const okb=m.querySelector('#g-ok');okb.disabled=true;
+      const gs=m.querySelector('#g-g').value.trim().toUpperCase();if(gs&&gs.length!==15)return toast('GSTIN must be 15 characters');c.gstin=gs;c.address=m.querySelector('#g-a').value.trim();saveDB();const okb=m.querySelector('#g-ok');okb.disabled=true;
       const res=generateInvoices(bCli,sel.map(t=>t.id),{date:d,period:m.querySelector('#g-p').value.trim(),separate:sep});
       okb.disabled=false;
       if(!res)return;
