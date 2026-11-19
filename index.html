@@ -336,7 +336,7 @@ function ask(msg,okLabel,cb,danger){
 const rd=(k,d)=>{try{const r=localStorage.getItem(k);return r?JSON.parse(r):d}catch(e){return d}};
 const wr=(k,v)=>localStorage.setItem(k,JSON.stringify(v)); // throws on failure
 let trips=[];
-let master={veh:[],trn:[],term:[],ba:[],omc:[]};
+let master={veh:[],trn:[],term:[],ba:[],omc:[],termPlace:{}};
 function defDB(){return{v:3,migrated:0,clients:[],drivers:[],bas:[],ledger:[],invoices:[],
   settings:{ledgerStart:'2026-10-01',openAmt:0,openSet:false,
    series:{prefix:'ND',counters:{'2026-27':6}},
@@ -352,7 +352,7 @@ function loadDB(){
   ['clients','drivers','bas','ledger','invoices'].forEach(k=>{if(!Array.isArray(db[k]))db[k]=[]});
 }
 function loadAll(){trips=rd(KEY,[]);if(!Array.isArray(trips))trips=[];loadDB();loadMaster()}
-function loadMaster(){const m=rd(MKEY,null);if(m){master.veh=m.veh||[];master.trn=m.trn||[];master.term=m.term||[];master.ba=m.ba||[];master.omc=Array.isArray(m.omc)?m.omc:master.omc}}
+function loadMaster(){const m=rd(MKEY,null);if(m){master.veh=m.veh||[];master.trn=m.trn||[];master.term=m.term||[];master.ba=m.ba||[];master.omc=Array.isArray(m.omc)?m.omc:master.omc;master.termPlace=m.termPlace||{}}}
 const save=()=>{try{wr(KEY,trips);return true}catch(e){toast('⚠ Save failed — storage full?');return false}};
 const saveDB=()=>{try{wr(DKEY,db);return true}catch(e){toast('⚠ Save failed — storage full?');return false}};
 const saveM=()=>{try{wr(MKEY,master)}catch(e){}};
@@ -797,6 +797,15 @@ $('#m-body').addEventListener('click',e=>{
       if(n>0)return ask('<b>'+esc(x.name)+'</b> is used in '+n+' record(s), so it cannot be deleted without losing history.<br><br>Deactivate it instead? It will disappear from new-trip dropdowns but old trips keep it.',x.active===false?'OK':'Deactivate',()=>{x.active=false;saveDB();renderMaster()});
       return ask('Delete <b>'+esc(x.name)+'</b>? (Not used anywhere.)','Delete',()=>{const A=KIND[k].arr();A.splice(A.indexOf(x),1);saveDB();renderMaster()},true);
     }
+    if(a==='tedit'){const key=b.dataset.key;
+      return modal('<h3>✏ Edit terminal</h3><label>Terminal name</label><input id="te-n" value="'+esc(key)+'"><label>Place printed on bill (From)</label><input id="te-p" value="'+esc(master.termPlace[key]||'')+'" placeholder="Mundra / Dahej / Kandla"><div class="row2"><button class="big gry" id="te-no" style="margin-top:16px">Cancel</button><button class="big" id="te-ok" style="margin-top:16px">Save</button></div>',mm=>{
+        mm.querySelector('#te-no').onclick=closeModal;
+        mm.querySelector('#te-ok').onclick=()=>{const n=mm.querySelector('#te-n').value.trim(),pl=mm.querySelector('#te-p').value.trim();if(!n)return toast('Enter name');
+          if(n!==key&&master.term.some(x=>x.toLowerCase()===n.toLowerCase()))return toast('Already exists');
+          if(n!==key){master.term=master.term.map(x=>x===key?n:x);trips.forEach(t=>{if(t.from===key)t.from=n});delete master.termPlace[key];save()}
+          if(pl)master.termPlace[n]=pl;else delete master.termPlace[n];
+          saveM();closeModal();toast('✅ Saved');renderMaster()}});
+    }
     if(a==='dsm'){const t=b.dataset.t,key=b.dataset.key;
       if(t==='veh')master.veh=master.veh.filter(x=>x!==key);else if(t==='trn')master.trn=master.trn.filter(x=>x.n!==key);else if(t==='omc')master.omc=master.omc.filter(x=>x!==key);else master.term=master.term.filter(x=>x!==key);
       saveM();renderMaster();toast('Deleted: '+key);return}
@@ -811,11 +820,11 @@ function mVeh(){
 function mOth(){
   const T=[...master.trn].sort((a,b)=>a.n.localeCompare(b.n)),M=[...master.term].sort(),O=[...master.omc].sort();
   $('#m-body').innerHTML='<div class="mc"><h3>🚚 Transporters</h3><input id="mt-n" placeholder="Transporter name"><input id="mt-p" type="tel" inputmode="tel" placeholder="Phone number" style="margin-top:8px"><button class="big addbtn" id="mt-add" type="button">➕ Add Transporter</button>'+(T.length?T.map(x=>mrow('trn',x.n,x.n+(x.p?'  —  '+x.p:''))).join(''):'<div class="note">No transporters yet.</div>')+'</div>'+
-   '<div class="mc"><h3>🏭 Loading Terminals</h3><input id="mm-in" placeholder="e.g. Mundra LPG Terminal"><button class="big addbtn" id="mm-add" type="button">➕ Add Terminal</button>'+(M.length?M.map(x=>mrow('term',x,x)).join(''):'<div class="note">No terminals yet.</div>')+'</div>'+
+   '<div class="mc"><h3>🏭 Loading Terminals</h3><input id="mm-in" placeholder="e.g. IOCL Mundra Terminal"><input id="mm-pl" placeholder="Place printed on bill (e.g. Mundra)" style="margin-top:8px"><button class="big addbtn" id="mm-add" type="button">➕ Add Terminal</button>'+(M.length?M.map(x=>'<div class="mrow"><span><b>'+esc(x)+'</b><br><small style="color:var(--mu)">Place on bill: '+esc(master.termPlace[x]||'— not set —')+'</small></span><button class="btn2" type="button" data-act="tedit" data-key="'+esc(x)+'">Edit</button><button type="button" data-act="dsm" data-t="term" data-key="'+esc(x)+'">🗑</button></div>').join(''):'<div class="note">No terminals yet.</div>')+'</div>'+
    '<div class="mc"><h3>🛢 OMC</h3><input id="mo-in" placeholder="e.g. IOCL"><button class="big addbtn" id="mo-add" type="button">➕ Add OMC</button>'+(O.length?O.map(x=>mrow('omc',x,x)).join(''):'<div class="note">No OMC yet.</div>')+'</div><p class="note">Deleting from these lists does not delete any saved trips.</p>';
   $('#mt-add').onclick=()=>{const n=$('#mt-n').value.trim(),p=$('#mt-p').value.trim();if(!n)return toast('Enter transporter name');if(p.replace(/\D/g,'').length<10)return toast('Enter a valid 10-digit phone');
     const ex=master.trn.find(x=>x.n.toLowerCase()===n.toLowerCase());if(ex){ex.p=p;toast('Updated phone for '+ex.n)}else{master.trn.push({n,p});toast('✅ '+n+' added')}saveM();renderMaster()};
-  $('#mm-add').onclick=()=>{const v=$('#mm-in').value.trim();if(!v)return toast('Enter terminal name');if(master.term.some(x=>x.toLowerCase()===v.toLowerCase()))return toast('Already in the list');master.term.push(v);saveM();renderMaster();toast('✅ '+v+' added')};
+  $('#mm-add').onclick=()=>{const v=$('#mm-in').value.trim();if(!v)return toast('Enter terminal name');if(master.term.some(x=>x.toLowerCase()===v.toLowerCase()))return toast('Already in the list');master.term.push(v);const pl=$('#mm-pl').value.trim();if(pl)master.termPlace[v]=pl;saveM();renderMaster();toast('✅ '+v+' added')};
   $('#mo-add').onclick=()=>{const v=$('#mo-in').value.trim().toUpperCase();if(!v)return toast('Enter OMC name');if(master.omc.some(x=>x.toLowerCase()===v.toLowerCase()))return toast('Already in the list');master.omc.push(v);saveM();renderMaster();toast('✅ '+v+' added')};
 }
 
@@ -889,7 +898,7 @@ function restoreFile(e){
           (d.master.veh||[]).forEach(v=>{if(!master.veh.includes(v))master.veh.push(v)});
           (d.master.trn||[]).forEach(x=>{if(x&&x.n&&!master.trn.some(y=>y.n===x.n))master.trn.push(x)});
           (d.master.term||[]).forEach(v=>{if(!master.term.includes(v))master.term.push(v)});
-          (d.master.omc||[]).forEach(v=>{if(!master.omc.includes(v))master.omc.push(v)});
+          (d.master.omc||[]).forEach(v=>{if(!master.omc.includes(v))master.omc.push(v)});master.termPlace=Object.assign({},d.master.termPlace||{},master.termPlace||{});
           saveM();
         }
         // old-format backups: build client / B.A masters from text names
@@ -1411,7 +1420,7 @@ const dMonY=s=>s?s.slice(8,10)+'-'+MONTHS[+s.slice(5,7)-1]+'-'+s.slice(0,4):'';
 const IMG_HEAD_SRC=()=>IMG_HEAD,IMG_FOOT_SRC=()=>IMG_FOOT,IMG_SIGN_SRC=()=>IMG_SIGN;
 function invHTML(inv){
   const f=inv.firm,rcm=inv.mode==='RCM';
-  let rowsH=inv.lines.map((l,i)=>'<tr><td class="ct">'+(i+1)+'</td><td class="ct">'+dmy(l.date)+'</td><td>'+esc(l.from)+'</td><td>'+esc(l.to)+'</td><td>'+esc(l.veh)+'</td><td>'+esc(l.lr||'')+'</td><td class="rt">'+fmtQ(l.qty)+'</td><td class="rt">'+f2(l.rate)+'</td><td class="rt">'+f2(l.qty*l.rate)+'</td></tr>').join('');
+  let rowsH=inv.lines.map((l,i)=>'<tr><td class="ct">'+(i+1)+'</td><td class="ct">'+dmy(l.date)+'</td><td>'+esc(l.fromPlace||master.termPlace[l.from]||l.from)+'</td><td>'+esc(l.to)+'</td><td>'+esc(l.veh)+'</td><td>'+esc(l.lr||'')+'</td><td class="rt">'+fmtQ(l.qty)+'</td><td class="rt">'+f2(l.rate)+'</td><td class="rt">'+f2(l.qty*l.rate)+'</td></tr>').join('');
   for(let i=inv.lines.length;i<0;i++)rowsH+='<tr class="blank"><td></td><td></td><td></td><td></td><td></td><td></td><td></td><td></td><td></td></tr>';
   const tq=inv.lines.reduce((s,l)=>s+l.qty,0);
   const lab=(t)=>'<td colspan="8" class="rt"><b>'+t+'</b></td>';
@@ -1567,7 +1576,7 @@ function generateInvoices(cliId,ids,o){
     groups.forEach(g=>{
       const fy=fyOf(o.date),seq=nextSeq(o.date),pf=db.settings.series.prefix,no=pf+'/'+fy+'/'+pad3(seq);
       if(db.invoices.some(i=>i.no===no))throw new Error('Invoice number '+no+' already exists');
-      const lines=g.map(t=>({tripId:t.id,date:t.date,from:t.from,to:t.to,veh:t.vehicle,lr:t.lr||'',qty:num(t.qty),rate:num(t.frRate)}));
+      const lines=g.map(t=>({tripId:t.id,date:t.date,from:t.from,fromPlace:master.termPlace[t.from]||'',to:t.to,veh:t.vehicle,lr:t.lr||'',qty:num(t.qty),rate:num(t.frRate)}));
       const C=invCalc(lines,modes[0],F.cgst,F.sgst);
       const ds=g.map(t=>t.date).sort();
       const inv={id:'i'+uid(),no,prefix:pf,fy,seq,date:o.date,period:(o.separate?dMonY(ds[0]):(o.period||dMonY(ds[0])+' to '+dMonY(ds[ds.length-1]))),
