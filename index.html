@@ -457,6 +457,10 @@ function syncPay(t){
   const lr=last(t.recvs||[]),lp=last(t.paids||[]);
   t.recvRef=lr?lr.ref||'':'';t.paidRef=lp?lp.ref||'':'';
   if(lp)t.paidOn=lp.date||t.paidOn||'';
+  // billed trip: fully paid -> Completed; if a payment is removed -> back to Payment Pending
+  if(t.invoiceId&&t.stage){const due=calc(t).partyDue;
+    if(t.stage===STAGES[S_BILL]&&t.recvAmt>0&&due===0)setStage(t,STAGES[S_DONE],undefined,true);
+    else if(t.stage===STAGES[S_DONE]&&due>0)setStage(t,STAGES[S_BILL],undefined,true);}
   const fr=grossOf(num(t.freight),t.taxMode),tr=num(t.freight)-num(t.comm);
   t.recvStatus=t.recvAmt>=fr-1&&fr>0?'Yes':t.recvAmt>0?'Partial':'No';
   t.paidStatus=t.paidAmt>=tr&&tr>0?'Yes':t.paidAmt>0?'Partial':'No';
@@ -651,6 +655,9 @@ function dashTiles(){
    {k:'wu',l:'Waiting for unloading',n:at('Waiting for Unloading').length,list:at('Waiting for Unloading')},
    {k:'cu',l:'Currently unloading',n:at('Currently Unloading').length,list:at('Currently Unloading')},
    {k:'uc',l:'Unloading completed',n:at('Unloading Completed').length,list:at('Unloading Completed')},
+   {k:'bp',l:'Bill to company pending',n:all.filter(t=>!t.invoiceNo&&stIdx(t)>=S_UC&&stIdx(t)<S_DONE&&!hasSt(t,'Bill Company Done')).length,list:all.filter(t=>!t.invoiceNo&&stIdx(t)>=S_UC&&stIdx(t)<S_DONE&&!hasSt(t,'Bill Company Done'))},
+   {k:'pp',l:'Payment pending (bill done)',n:at(STAGES[S_BILL]).length,list:at(STAGES[S_BILL])},
+   {k:'done',l:'Completed',n:at(STAGES[S_DONE]).length,list:at(STAGES[S_DONE])},
    {k:'idle',l:'Idle after unloading (8h+)',n:idle.length,idle}
   ];
 }
@@ -1405,7 +1412,7 @@ const IMG_HEAD_SRC=()=>IMG_HEAD,IMG_FOOT_SRC=()=>IMG_FOOT,IMG_SIGN_SRC=()=>IMG_S
 function invHTML(inv){
   const f=inv.firm,rcm=inv.mode==='RCM';
   let rowsH=inv.lines.map((l,i)=>'<tr><td class="ct">'+(i+1)+'</td><td class="ct">'+dmy(l.date)+'</td><td>'+esc(l.from)+'</td><td>'+esc(l.to)+'</td><td>'+esc(l.veh)+'</td><td>'+esc(l.lr||'')+'</td><td class="rt">'+fmtQ(l.qty)+'</td><td class="rt">'+f2(l.rate)+'</td><td class="rt">'+f2(l.qty*l.rate)+'</td></tr>').join('');
-  for(let i=inv.lines.length;i<14;i++)rowsH+='<tr class="blank"><td></td><td></td><td></td><td></td><td></td><td></td><td></td><td></td><td></td></tr>';
+  for(let i=inv.lines.length;i<0;i++)rowsH+='<tr class="blank"><td></td><td></td><td></td><td></td><td></td><td></td><td></td><td></td><td></td></tr>';
   const tq=inv.lines.reduce((s,l)=>s+l.qty,0);
   const lab=(t)=>'<td colspan="8" class="rt"><b>'+t+'</b></td>';
   let tot='<tr><td colspan="6" class="rt"><b>TOTAL</b></td><td class="rt"><b>'+fmtQ(tq)+'</b></td><td></td><td class="rt"><b>'+f2(inv.total)+'</b></td></tr>';
