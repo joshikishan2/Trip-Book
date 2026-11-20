@@ -1238,7 +1238,8 @@ function accTotals(R){
   const gRcm=r2(pt.reduce((s,t)=>s+calc(t).rcmTax,0));
   const gNet=Math.max(0,r2(gOut-gIn-gRcm)),gCarry=Math.max(0,r2(gIn+gRcm-gOut));
   const gUnset=pt.filter(t=>!t.tBill).length,gMix=pt.filter(t=>t.taxMode==='RCM'&&t.tBill==='GST').length;
-  return{L,inL,comm,rec,paid,wd,opening,closing,toCollect:r2(toCollect),toPay:r2(toPay),surplus:r2(commRec-wd),commRec,commPend,surplusIf:r2(comm-wd),gOut,gIn,gRcm,gNet,gCarry,gUnset,gMix,gst:r2(gNet+gRcm)};
+  const billedPend=r2(db.invoices.filter(i=>i.status!=='cancelled').reduce((s,i)=>s+Math.max(0,invPaid(i).out),0)),billedN=db.invoices.filter(i=>i.status!=='cancelled'&&invPaid(i).out>1).length;
+  return{L,inL,comm,rec,paid,wd,opening,closing,toCollect:r2(toCollect),toPay:r2(toPay),surplus:r2(commRec-wd),commRec,commPend,surplusIf:r2(comm-wd),billedPend,billedN,gOut,gIn,gRcm,gNet,gCarry,gUnset,gMix,gst:r2(gNet+gRcm)};
 }
 function renderAcc(){
   fillSel('#a-per',[{v:'ledger',l:'Since ledger start ('+fmtD(db.settings.ledgerStart)+')'},{v:'month',l:'Pick a month'},{v:'all',l:'All time'}],{v:aPer,l:''},null);
@@ -1259,6 +1260,8 @@ function renderAcc(){
    '<div class="stat"><small>Personal Withdrawals</small><strong>'+inr(T.wd)+'</strong></div>'+
    '<div class="stat"><small>Bank Balance (closing)</small><strong class="'+(T.closing<0?'red':'grn')+'">'+inr(T.closing)+'</strong></div>'+
    '<div class="stat"><small>'+sd[0]+'</small><strong class="'+sd[1]+'">'+inr(Math.abs(T.surplus))+'</strong></div>'+
+   '<div class="stat"><small>Bill done, payment pending ('+T.billedN+' bills)</small><strong class="red">'+inr(T.billedPend)+'</strong></div>'+
+   '<div class="stat"><small>Bill not yet made (to collect)</small><strong class="red">'+inr(Math.max(0,r2(T.toCollect-T.billedPend)))+'</strong></div>'+
    '<div class="stat"><small>Total To Collect (all trips)</small><strong class="red">'+inr(T.toCollect)+'</strong></div>'+
    '<div class="stat"><small>Total To Pay (all trips)</small><strong class="red">'+inr(T.toPay)+'</strong></div>'+
    '<div class="stat" style="grid-column:1/3"><small>Estimated GST Payable</small><strong class="red">'+inr(T.gst)+'</strong></div></div>';
