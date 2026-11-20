@@ -333,7 +333,7 @@ const wr=(k,v)=>localStorage.setItem(k,JSON.stringify(v)); // throws on failure
 let trips=[];
 let master={veh:[],trn:[],term:[],ba:[],omc:[],termPlace:{}};
 function defDB(){return{v:3,migrated:0,clients:[],drivers:[],bas:[],ledger:[],invoices:[],
-  settings:{ledgerStart:'2026-10-01',openAmt:0,openSet:false,
+  settings:{ledgerStart:'2026-11-15',openAmt:0,openSet:false,
    series:{prefix:'ND',counters:{'2026-27':6}},
    firm:{name:'K.K ENTERPRISE',gstin:'24AZKPJ9397A1Z5',pan:'AZKPJ9397A',bank:'BARODA GUJARAT GRAMIN BANK',acc:'76360200000020',ifsc:'BARB0BGGBXX',cgst:9,sgst:9,hsn:'996511'}}}}
 let db=defDB();
@@ -345,6 +345,7 @@ function loadDB(){
   db.settings.firm=Object.assign(ds.firm,(s.settings&&s.settings.firm)||{});
   db.settings.series=Object.assign(ds.series,(s.settings&&s.settings.series)||{});
   ['clients','drivers','bas','ledger','invoices'].forEach(k=>{if(!Array.isArray(db[k]))db[k]=[]});
+  if(!db.settings.openSet&&db.settings.ledgerStart==='2026-10-01')db.settings.ledgerStart='2026-11-15'; // opening balance not entered yet: start ledger on 15 Nov
 }
 function loadAll(){trips=rd(KEY,[]);if(!Array.isArray(trips))trips=[];loadDB();loadMaster()}
 function loadMaster(){const m=rd(MKEY,null);if(m){master.veh=m.veh||[];master.trn=m.trn||[];master.term=m.term||[];master.ba=m.ba||[];master.omc=Array.isArray(m.omc)?m.omc:master.omc;master.termPlace=m.termPlace||{}}}
