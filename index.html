@@ -1225,6 +1225,8 @@ function accTotals(R){
   const sm=ty=>r2(inL.filter(r=>r.type===ty).reduce((s,r)=>s+r.amt,0));
   const pt=trips.filter(t=>inR(t.date,R));
   const comm=r2(pt.reduce((s,t)=>s+num(t.comm),0));
+  const cRec=t=>{const g=calc(t).gross,cm=num(t.comm);return g>0?r2(cm*Math.min(1,num(t.recvAmt)/g)):0};
+  const commRec=r2(pt.reduce((s,t)=>s+cRec(t),0)),commPend=r2(comm-commRec);
   const rec=sm('recv'),paid=sm('paid'),wd=sm('wd');
   const before=L.filter(r=>R.from&&r.date<R.from);
   const opening=r2(num(db.settings.openAmt)+before.reduce((s,r)=>s+(r.type==='recv'?r.amt:-r.amt),0));
@@ -1236,7 +1238,7 @@ function accTotals(R){
   const gRcm=r2(pt.reduce((s,t)=>s+calc(t).rcmTax,0));
   const gNet=Math.max(0,r2(gOut-gIn-gRcm)),gCarry=Math.max(0,r2(gIn+gRcm-gOut));
   const gUnset=pt.filter(t=>!t.tBill).length,gMix=pt.filter(t=>t.taxMode==='RCM'&&t.tBill==='GST').length;
-  return{L,inL,comm,rec,paid,wd,opening,closing,toCollect:r2(toCollect),toPay:r2(toPay),surplus:r2(comm-wd),gOut,gIn,gRcm,gNet,gCarry,gUnset,gMix,gst:r2(gNet+gRcm)};
+  return{L,inL,comm,rec,paid,wd,opening,closing,toCollect:r2(toCollect),toPay:r2(toPay),surplus:r2(commRec-wd),commRec,commPend,surplusIf:r2(comm-wd),gOut,gIn,gRcm,gNet,gCarry,gUnset,gMix,gst:r2(gNet+gRcm)};
 }
 function renderAcc(){
   fillSel('#a-per',[{v:'ledger',l:'Since ledger start ('+fmtD(db.settings.ledgerStart)+')'},{v:'month',l:'Pick a month'},{v:'all',l:'All time'}],{v:aPer,l:''},null);
@@ -1250,6 +1252,8 @@ function renderAcc(){
   h+='<div class="note" style="margin:0 2px 8px">Period: <b>'+esc(R.label)+'</b>. Commission is from trips in this period; payments are from the bank ledger.</div>';
   h+='<div class="grid">'+
    '<div class="stat"><small>Total Commission Earned</small><strong class="blu">'+inr(T.comm)+'</strong></div>'+
+   '<div class="stat"><small>Commission Received</small><strong class="grn">'+inr(T.commRec)+'</strong></div>'+
+   '<div class="stat"><small>Commission Pending</small><strong class="red">'+inr(T.commPend)+'</strong></div>'+
    '<div class="stat"><small>Payments Received</small><strong class="grn">'+inr(T.rec)+'</strong></div>'+
    '<div class="stat"><small>Payments Made</small><strong>'+inr(T.paid)+'</strong></div>'+
    '<div class="stat"><small>Personal Withdrawals</small><strong>'+inr(T.wd)+'</strong></div>'+
@@ -1258,7 +1262,7 @@ function renderAcc(){
    '<div class="stat"><small>Total To Collect (all trips)</small><strong class="red">'+inr(T.toCollect)+'</strong></div>'+
    '<div class="stat"><small>Total To Pay (all trips)</small><strong class="red">'+inr(T.toPay)+'</strong></div>'+
    '<div class="stat" style="grid-column:1/3"><small>Estimated GST Payable</small><strong class="red">'+inr(T.gst)+'</strong></div></div>';
-  h+='<div class="mc" style="margin-top:12px"><h3>🏦 Surplus / Deficit</h3><div class="kv"><span>Total Commission Earned</span><b>'+inr2(T.comm)+'</b></div><div class="kv"><span>Total Personal Withdrawals</span><b>'+inr2(T.wd)+'</b></div><div class="kv"><span><b>'+sd[0]+'</b></span><b class="'+sd[1]+'">'+inr2(Math.abs(T.surplus))+'</b></div></div>';
+  h+='<div class="mc" style="margin-top:12px"><h3>🏦 Surplus / Deficit</h3><div class="kv"><span>Commission Earned</span><b>'+inr2(T.comm)+'</b></div><div class="kv"><span>Commission Received</span><b class="grn">'+inr2(T.commRec)+'</b></div><div class="kv"><span>Commission Pending</span><b class="red">'+inr2(T.commPend)+'</b></div><div class="kv"><span>Personal Withdrawals</span><b>'+inr2(T.wd)+'</b></div><div class="kv"><span><b>'+sd[0]+'</b> (Received − Withdrawals)</span><b class="'+sd[1]+'">'+inr2(Math.abs(T.surplus))+'</b></div><div class="kv"><span>If pending commission is collected</span><b class="'+(T.surplusIf<0?'red':'grn')+'">'+(T.surplusIf<0?'Deficit ':'Surplus ')+inr2(Math.abs(T.surplusIf))+'</b></div><div class="note">Commission received is the share of each trip\'s commission covered by the payments received on it (GST excluded).</div></div>';
   h+='<div class="mc"><h3>🧮 Estimated GST Payable</h3>'+
    '<div class="kv"><span>GST charged on my GST bills</span><b>'+inr2(T.gOut)+'</b></div>'+
    '<div class="kv"><span>Less: credit on transporters\' GST bills</span><b>− '+inr2(T.gIn)+'</b></div>'+
