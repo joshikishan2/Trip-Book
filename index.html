@@ -204,6 +204,9 @@ table.t td.r,table.t th.r{text-align:right}
   </div>
   <label>Client (Company) *</label><input id="t-party" list="cli-dl" placeholder="Client / company name" autocomplete="off"><datalist id="cli-dl"></datalist>
   <label>Transporter *</label><select id="t-tn"></select>
+  <label>Transporter's bill to me * <i>(choose every time)</i></label>
+  <div class="seg" id="sg-tb"><button data-v="GST">GST</button><button data-v="RCM">RCM</button><button data-v="None">No GST</button></div>
+  <div id="tb-rate-wrap" style="display:none"><label>Transporter GST / RCM rate %</label><input id="t-tbr" type="number" inputmode="decimal" placeholder="18"></div>
 
   <label>Trip Source * <i>(choose every time)</i></label>
   <div class="seg" id="sg-src"><button data-v="BA">B.A</button><button data-v="Direct">Direct</button></div>
@@ -352,8 +355,8 @@ function loadMaster(){const m=rd(MKEY,null);if(m){master.veh=m.veh||[];master.tr
 const save=()=>{try{wr(KEY,trips);return true}catch(e){toast('⚠ Save failed — storage full?');return false}};
 const saveDB=()=>{try{wr(DKEY,db);return true}catch(e){toast('⚠ Save failed — storage full?');return false}};
 const saveM=()=>{try{wr(MKEY,master)}catch(e){}};
-let rem={load:2,unl:2};
-try{const r=JSON.parse(localStorage.getItem('tripbook_rem')||'null');if(r&&r.load>0&&r.unl>0)rem=r}catch(e){}
+let rem={load:2,unl:2,b1:7,b2:10};
+try{const r=JSON.parse(localStorage.getItem('tripbook_rem')||'null');if(r&&r.load>0&&r.unl>0)rem=Object.assign(rem,r)}catch(e){}
 
 /* ---------- constants ---------- */
 const STL={'Waiting':'Waiting for Loading','Running':'Running','Unload Pending':'Unload Pending','Bill Company Done':'Bill to Company Done','Payment Pending':'Payment Pending','Bill Done':'Bill to Transporter Done','Transporter Pending':'Payment to Transporter Pending','Transporter Paid':'Payment to Transporter Done'};
@@ -400,6 +403,7 @@ function migrateTrip(t){
   }
   if(!t.stageTimes)t.stageTimes={};if(!Array.isArray(t.stageLog))t.stageLog=[];
   if(t.invoiceNo===undefined){t.invoiceNo='';t.invoiceId=''}
+  if(t.tBill===undefined){t.tBill='';t.tRate=0}
 }
 function migrateAll(){
   // 1) safety copy of the raw pre-upgrade data (once)
@@ -467,9 +471,12 @@ function calc(t){
   const fr=num(t.freight),cm=num(t.comm),rc=num(t.recvAmt),pd=num(t.paidAmt);
   const transTotal=fr-cm,gross=(t.billGross!=null&&t.invoiceId)?num(t.billGross):grossOf(fr,t.taxMode);
   const pdue=r2(gross-rc);
+  const trate=num(t.tRate)||(t.tBill==='RCM'?5:t.tBill==='GST'?18:0);
+  const tg=t.tBill==='GST'?r2(transTotal*trate/100):0,rcm=t.tBill==='RCM'?r2(transTotal*trate/100):0,tgross=transTotal+tg;   // transporter GST bill: I owe him base + GST; RCM: I pay the tax to the government myself
   return{fr,cm,rc,pd,transTotal,gross,tax:r2(gross-fr),profit:rc-pd,
     partyDue:pdue>1?pdue:0,                     // up to Re 1 of bill round-off is treated as settled
-    transDue:Math.max(0,r2(transTotal-pd))};
+    transGst:tg,rcmTax:rcm,transGross:tgross,
+    transDue:Math.max(0,r2(tgross-pd))};
 }
 const isPend=t=>{const c=calc(t);return c.partyDue>0||c.transDue>0};
 const daysSince=d=>{if(!d)return 0;const a=d.split('-'),n=new Date();return Math.max(0,Math.floor((new Date(n.getFullYear(),n.getMonth(),n.getDate())-new Date(+a[0],+a[1]-1,+a[2]))/86400000))};
@@ -624,11 +631,18 @@ function renderBackupBanner(){
   if(last&&days<7){b.className='bk ok';b.textContent='✅ Last backup: '+(days===0?'today':days+' day'+(days>1?'s':'')+' ago')}
   else{b.className='bk warn';b.innerHTML=last?'<b>⚠ Last backup was '+days+' days ago.</b><br>Tap here to back up now.':'<b>⚠ No backup taken yet.</b><br>Tap here to back up now.'}
 }
+function billReminders(){
+  return db.invoices.filter(i=>i.status!=='cancelled').map(i=>({i,d:daysSince(i.date),p:invPaid(i)})).filter(x=>x.p.out>1&&x.d>=rem.b1).sort((a,b)=>b.d-a.d);
+}
 function renderReminders(){
   const box=$('#rem-box');if(!box)return;
   const al=trips.filter(t=>isWaiting(t)&&daysSince(t.waitSince)>=limitFor(t)).sort((a,b)=>daysSince(b.waitSince)-daysSince(a.waitSince));
-  box.innerHTML=al.length?'<h2 style="margin-top:0">⏰ Reminders ('+al.length+')</h2>'+al.map(t=>{const d=daysSince(t.waitSince);return '<button type="button" class="remrow" data-rem="'+t.id+'"><b>'+esc(t.vehicle)+'</b> — '+(hasSt(t,'Waiting')?'waiting for loading':'waiting for unloading')+' since <b>'+d+' day'+(d===1?'':'s')+'</b><br>'+esc(t.from)+' → '+esc(t.to)+' · '+esc(cliName(t))+'</button>'}).join(''):'';
+  const bl=billReminders();
+  let h=al.map(t=>{const d=daysSince(t.waitSince);return '<button type="button" class="remrow" data-rem="'+t.id+'"><b>'+esc(t.vehicle)+'</b> — '+(hasSt(t,'Waiting')?'waiting for loading':'waiting for unloading')+' since <b>'+d+' day'+(d===1?'':'s')+'</b><br>'+esc(t.from)+' → '+esc(t.to)+' · '+esc(cliName(t))+'</button>'}).join('')+
+   bl.map(x=>'<button type="button" class="remrow" data-ri="'+x.i.id+'" style="'+(x.d>=rem.b2?'':'border-color:#e0a000;background:#fff6dd;color:#6b4a00')+'">🧾 <b>'+esc(x.i.no)+'</b> — '+esc(x.i.client.name)+'<br>Bill done <b>'+x.d+' days ago</b>'+(x.d>=rem.b2?' ('+rem.b2+'+ days)':' ('+rem.b1+'+ days)')+' · payment pending</button>').join('');
+  box.innerHTML=h?'<h2 style="margin-top:0">⏰ Reminders ('+(al.length+bl.length)+')</h2>'+h:'';
 }
+$('#rem-box').addEventListener('click',e=>{const b=e.target.closest('[data-ri]');if(b){bTab='hist';show('bill')}});
 $('#rem-box').addEventListener('click',e=>{const b=e.target.closest('[data-rem]');if(b)openForm(b.dataset.rem)});
 $('#bk-banner').onclick=()=>{mTab='set';show('master')};
 let dSel='month';
@@ -817,11 +831,11 @@ function mVeh(){
 }
 function mOth(){
   const T=[...master.trn].sort((a,b)=>a.n.localeCompare(b.n)),M=[...master.term].sort(),O=[...master.omc].sort();
-  $('#m-body').innerHTML='<div class="mc"><h3>🚚 Transporters</h3><input id="mt-n" placeholder="Transporter name"><input id="mt-p" type="tel" inputmode="tel" placeholder="Phone number" style="margin-top:8px"><button class="big addbtn" id="mt-add" type="button">➕ Add Transporter</button>'+(T.length?T.map(x=>mrow('trn',x.n,x.n+(x.p?'  —  '+x.p:''))).join(''):'<div class="note">No transporters yet.</div>')+'</div>'+
+  $('#m-body').innerHTML='<div class="mc"><h3>🚚 Transporters</h3><input id="mt-n" placeholder="Transporter name"><input id="mt-p" type="tel" inputmode="tel" placeholder="Phone number" style="margin-top:8px"><label>His bill to me</label><div class="row2"><select id="mt-g"><option value="GST">GST</option><option value="RCM">RCM</option><option value="None">No GST</option></select><input id="mt-r" type="number" inputmode="decimal" placeholder="Rate % (18 / 5)"></div><button class="big addbtn" id="mt-add" type="button">➕ Add Transporter</button>'+(T.length?T.map(x=>mrow('trn',x.n,x.n+(x.p?'  —  '+x.p:'')+'  ['+(x.g==='None'?'No GST':x.g?x.g+(x.gr?' '+x.gr+'%':''):'bill type not set')+']')).join(''):'<div class="note">No transporters yet.</div>')+'</div>'+
    '<div class="mc"><h3>🏭 Loading Terminals</h3><input id="mm-in" placeholder="e.g. IOCL Mundra Terminal"><input id="mm-pl" placeholder="Place printed on bill (e.g. Mundra)" style="margin-top:8px"><button class="big addbtn" id="mm-add" type="button">➕ Add Terminal</button>'+(M.length?M.map(x=>'<div class="mrow"><span><b>'+esc(x)+'</b><br><small style="color:var(--mu)">Place on bill: '+esc(master.termPlace[x]||'— not set —')+'</small></span><button class="btn2" type="button" data-act="tedit" data-key="'+esc(x)+'">Edit</button><button type="button" data-act="dsm" data-t="term" data-key="'+esc(x)+'">🗑</button></div>').join(''):'<div class="note">No terminals yet.</div>')+'</div>'+
    '<div class="mc"><h3>🛢 OMC</h3><input id="mo-in" placeholder="e.g. IOCL"><button class="big addbtn" id="mo-add" type="button">➕ Add OMC</button>'+(O.length?O.map(x=>mrow('omc',x,x)).join(''):'<div class="note">No OMC yet.</div>')+'</div><p class="note">Deleting from these lists does not delete any saved trips.</p>';
   $('#mt-add').onclick=()=>{const n=$('#mt-n').value.trim(),p=$('#mt-p').value.trim();if(!n)return toast('Enter transporter name');if(p.replace(/\D/g,'').length<10)return toast('Enter a valid 10-digit phone');
-    const ex=master.trn.find(x=>x.n.toLowerCase()===n.toLowerCase());if(ex){ex.p=p;toast('Updated phone for '+ex.n)}else{master.trn.push({n,p});toast('✅ '+n+' added')}saveM();renderMaster()};
+    const ex=master.trn.find(x=>x.n.toLowerCase()===n.toLowerCase());const g=$('#mt-g').value,gr=g==='None'?0:(num($('#mt-r').value)||(g==='RCM'?5:18));if(ex){ex.p=p;ex.g=g;ex.gr=gr;toast('Updated '+ex.n)}else{master.trn.push({n,p,g,gr});toast('✅ '+n+' added')}saveM();renderMaster()};
   $('#mm-add').onclick=()=>{const v=$('#mm-in').value.trim();if(!v)return toast('Enter terminal name');if(master.term.some(x=>x.toLowerCase()===v.toLowerCase()))return toast('Already in the list');master.term.push(v);const pl=$('#mm-pl').value.trim();if(pl)master.termPlace[v]=pl;saveM();renderMaster();toast('✅ '+v+' added')};
   $('#mo-add').onclick=()=>{const v=$('#mo-in').value.trim().toUpperCase();if(!v)return toast('Enter OMC name');if(master.omc.some(x=>x.toLowerCase()===v.toLowerCase()))return toast('Already in the list');master.omc.push(v);saveM();renderMaster();toast('✅ '+v+' added')};
 }
@@ -830,7 +844,7 @@ function mOth(){
 function mSet(){
   const f=db.settings.firm,s=db.settings.series,fy=fyOf(todayStr());
   $('#m-body').innerHTML=
-  '<div class="mc"><h3>⏰ Reminder Settings</h3><label style="margin-top:0">Remind if TT is waiting for loading for more than (days)</label><input id="rs-load" type="number" inputmode="numeric" min="1" value="'+rem.load+'"><label>Remind if TT is waiting for unloading for more than (days)</label><input id="rs-unl" type="number" inputmode="numeric" min="1" value="'+rem.unl+'"><button class="big addbtn" id="rs-save" type="button">💾 Save Reminder Days</button></div>'+
+  '<div class="mc"><h3>⏰ Reminder Settings</h3><label style="margin-top:0">Remind if TT is waiting for loading for more than (days)</label><input id="rs-load" type="number" inputmode="numeric" min="1" value="'+rem.load+'"><label>Remind if TT is waiting for unloading for more than (days)</label><input id="rs-unl" type="number" inputmode="numeric" min="1" value="'+rem.unl+'"><label>Remind about unpaid bills after (days) — first reminder</label><input id="rs-b1" type="number" inputmode="numeric" min="1" value="'+rem.b1+'"><label>Urgent reminder (days)</label><input id="rs-b2" type="number" inputmode="numeric" min="1" value="'+rem.b2+'"><button class="big addbtn" id="rs-save" type="button">💾 Save Reminder Days</button></div>'+
   '<div class="mc"><h3>🧾 Bill / Firm Details</h3><div class="note" style="margin:0">Printed on every invoice.</div>'+
    '<label>Firm name</label><input id="fm-n" value="'+esc(f.name)+'"><div class="row2"><div><label>GSTIN</label><input id="fm-g" value="'+esc(f.gstin)+'"></div><div><label>PAN</label><input id="fm-p" value="'+esc(f.pan)+'"></div></div>'+
    '<label>Bank name</label><input id="fm-b" value="'+esc(f.bank)+'"><div class="row2"><div><label>A/c number</label><input id="fm-a" value="'+esc(f.acc)+'"></div><div><label>IFSC</label><input id="fm-i" value="'+esc(f.ifsc)+'"></div></div>'+
@@ -845,7 +859,7 @@ function mSet(){
    '<p class="note">⚠ Data is stored only in this phone\'s browser. Take a backup weekly and save it on WhatsApp/Drive. Backup includes trips, clients, drivers, B.A, bank ledger, invoices and master lists.</p><p class="note" id="stor"></p></div>';
   const d=new Date();$('#x-from').value=d.getFullYear()+'-'+pad(d.getMonth()+1)+'-01';$('#x-to').value=todayStr();
   const l=getBk();$('#stor').textContent='Total trips: '+trips.length+' · Invoices: '+db.invoices.length+' · Last backup: '+(l?new Date(l).toLocaleDateString('en-IN'):'never');
-  $('#rs-save').onclick=()=>{const l=parseInt($('#rs-load').value,10),u=parseInt($('#rs-unl').value,10);if(!(l>0&&u>0))return toast('Enter days as 1 or more');rem={load:l,unl:u};try{localStorage.setItem('tripbook_rem',JSON.stringify(rem))}catch(e){}toast('✅ Reminder days saved')};
+  $('#rs-save').onclick=()=>{const l=parseInt($('#rs-load').value,10),u=parseInt($('#rs-unl').value,10);if(!(l>0&&u>0))return toast('Enter days as 1 or more');const b1=parseInt($('#rs-b1').value,10),b2=parseInt($('#rs-b2').value,10);if(!(b1>0&&b2>=b1))return toast('Bill reminder days: urgent must be same or more than first');rem={load:l,unl:u,b1,b2};try{localStorage.setItem('tripbook_rem',JSON.stringify(rem))}catch(e){}toast('✅ Reminder days saved')};
   $('#fm-save').onclick=()=>{
     const F={name:$('#fm-n').value.trim(),gstin:$('#fm-g').value.trim().toUpperCase(),pan:$('#fm-p').value.trim().toUpperCase(),bank:$('#fm-b').value.trim(),acc:$('#fm-a').value.trim(),ifsc:$('#fm-i').value.trim().toUpperCase(),cgst:num($('#fm-c').value),sgst:num($('#fm-s').value),hsn:db.settings.firm.hsn};
     if(!F.name)return toast('Firm name required');
@@ -978,16 +992,18 @@ const XMIME='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
 function stamp(){return todayStr()}
 
 /* ---------- trip form ---------- */
-let editId=null,fSrc='',fTax='',fR=[],fP=[];
+let editId=null,fSrc='',fTax='',fTb='',fR=[],fP=[];
+const tbRate=()=>num($('#t-tbr').value)||(fTb==='RCM'?5:fTb==='GST'?18:0);
+const tbGstAmt=base=>fTb==='GST'?r2(base*tbRate()/100):0;
 const setSeg=(id,val)=>$$('#'+id+' button').forEach(b=>b.classList.toggle('on',b.dataset.v===val));
 const NEWOPT='__new';
 function formTotals(){const q=num($('#t-qty').value);const fr=r2(q*num($('#t-fr').value));const pt=editId?trips.find(x=>x.id===editId):null;return{q,fr,gross:(pt&&pt.invoiceId&&pt.billGross!=null)?num(pt.billGross):grossOf(fr,fTax),cm:r2(q*num($('#t-cm').value))}}
 function recalcForm(){
   const T=formTotals(),rc=r2(sumA(fR)),pd=r2(sumA(fP));
-  const tr=T.fr-T.cm;
+  const tbase=T.fr-T.cm,tg=tbGstAmt(tbase),tr=tbase+tg;
   $('#t-calc').innerHTML=`📦 Total Freight (Qty × Rate): <b>${inr(T.fr)}</b><br>
    💼 My Total Commission: <b>${inr(T.cm)}</b><br>
-   🚚 Total payable to transporter: <b>${inr(tr)}</b><br>
+   🚚 Total payable to transporter: <b>${inr(tr)}</b>${tg?' (incl. GST '+inr(tg)+')':''}<br>
    ${T.gross!==T.fr?'🧾 GST on freight: <b>'+inr(T.gross-T.fr)+'</b> · Client owes: <b>'+inr(T.gross)+'</b><br>':''}💰 Received: <b>${inr(rc)}</b> · Balance receivable: <b style="color:${T.gross-rc>1?'var(--red)':'var(--g2)'}">${inr(Math.max(0,T.gross-rc))}</b><br>
    🚚 Paid: <b>${inr(pd)}</b> · Balance payable: <b style="color:${tr-pd>0?'var(--red)':'var(--g2)'}">${inr(Math.max(0,tr-pd))}</b><br>
    📈 Profit (Received − Paid): <b style="color:${rc-pd<0?'var(--red)':'var(--g2)'}">${inr(rc-pd)}</b>`;
@@ -1012,10 +1028,14 @@ function payEvt(e){
 }
 ['#pay-r','#pay-p'].forEach(s=>['input','change','click'].forEach(ev=>$(s).addEventListener(ev,payEvt)));
 $('#add-r').onclick=()=>{const T=formTotals();const left=r2(T.gross-sumA(fR));fR.push({id:uid(),date:todayStr(),amt:left>0?left:'',ref:'',bank:todayStr()>=db.settings.ledgerStart});renderPays()};
-$('#add-p').onclick=()=>{const T=formTotals();const left=r2(T.fr-T.cm-sumA(fP));fP.push({id:uid(),date:todayStr(),amt:left>0?left:'',ref:'',bank:todayStr()>=db.settings.ledgerStart});renderPays()};
+$('#add-p').onclick=()=>{const T=formTotals();const left=r2(T.fr-T.cm+tbGstAmt(T.fr-T.cm)-sumA(fP));fP.push({id:uid(),date:todayStr(),amt:left>0?left:'',ref:'',bank:todayStr()>=db.settings.ledgerStart});renderPays()};
 ['t-qty','t-fr','t-cm'].forEach(i=>$('#'+i).addEventListener('input',recalcForm));
 
 $$('#sg-src button').forEach(b=>b.onclick=()=>{fSrc=b.dataset.v;setSeg('sg-src',fSrc);$('#ba-wrap').style.display=fSrc==='BA'?'':'none'});
+function setTb(v,rate){fTb=v;setSeg('sg-tb',v);$('#tb-rate-wrap').style.display=(v==='GST'||v==='RCM')?'':'none';$('#t-tbr').value=(v==='GST'||v==='RCM')?(rate||(v==='RCM'?5:18)):'';recalcForm()}
+$$('#sg-tb button').forEach(b=>b.onclick=()=>setTb(b.dataset.v));
+$('#t-tbr').addEventListener('input',recalcForm);
+$('#t-tn').addEventListener('change',e=>{const n=e.target.value.split('||')[0],x=master.trn.find(y=>y.n===n);if(x&&x.g)setTb(x.g,x.gr)});
 $$('#sg-tax button').forEach(b=>b.onclick=()=>{fTax=b.dataset.v;setSeg('sg-tax',fTax);recalcForm()});
 
 const getSts=()=>$$('#t-st-box input:checked').map(i=>i.value);
@@ -1032,7 +1052,7 @@ $('#t-st-box').addEventListener('change',e=>{
   }else if(TRANSIT.includes(v))$('#t-ws').value='';
   syncWS();
   if(i.checked&&v==='Transporter Paid'){
-    const T=formTotals(),left=r2(T.fr-T.cm-sumA(fP));
+    const T=formTotals(),left=r2(T.fr-T.cm+tbGstAmt(T.fr-T.cm)-sumA(fP));
     if(left>0){fP.push({id:uid(),date:todayStr(),amt:left,ref:'',bank:todayStr()>=db.settings.ledgerStart});renderPays()}
     toast('Enter the Paid Ref. No. (UTR) in the payment row');
     setTimeout(()=>{const e2=$('#pay-p .payrow:last-child [data-f="ref"]');if(e2){e2.scrollIntoView({block:'center'});e2.focus()}},250);
@@ -1075,6 +1095,7 @@ function openForm(id,pre){
   fillSel('#t-omc',[...master.omc].sort().map(x=>({v:x,l:x})),t&&t.omc?{v:t.omc,l:t.omc}:null,'-- Select OMC --');
   fillSel('#t-tn',[...master.trn].sort((a,b)=>a.n.localeCompare(b.n)).map(x=>({v:x.n+'||'+(x.p||''),l:x.n+(x.p?' — '+x.p:'')})),t&&t.tname?{v:t.tname+'||'+(t.tphone||''),l:t.tname+(t.tphone?' — '+t.tphone:'')}:null,'-- Select transporter --');
   fillClient(t?t.clientId:'');
+  {const tn=t?master.trn.find(y=>y.n===t.tname):null;if(t)setTb(t.tBill||'',t.tRate);else if(pre.tname){}else setTb('')}
   fSrc=t?t.tripSource:'';fTax=t?t.taxMode:'';
   setSeg('sg-src',fSrc);setSeg('sg-tax',fTax);
   fillBAsel(t?t.baId:'');$('#ba-wrap').style.display=fSrc==='BA'?'':'none';
@@ -1114,6 +1135,7 @@ $('#t-save').onclick=()=>{
   const needSrc=isNew||prevT.tripSource,needTax=isNew||prevT.taxMode,needDrv=isNew||prevT.driverId;
   if(needSrc&&!fSrc){toast('⚠ Choose Trip Source: B.A or Direct');$('#sg-src').scrollIntoView({block:'center'});return}
   if(fSrc==='BA'&&!g('t-ba')){toast('⚠ Select the B.A');$('#t-ba').focus();return}
+  if((isNew||prevT.tBill)&&!fTb){toast("⚠ Choose the transporter's bill: GST, RCM or No GST");$('#sg-tb').scrollIntoView({block:'center'});return}
   if(needTax&&!fTax){toast('⚠ Choose RCM or GST for this trip');$('#sg-tax').scrollIntoView({block:'center'});return}
   if(needDrv&&!g('t-drv')){toast('⚠ Select a driver (add one in Masters → Drivers)');$('#t-drv').focus();return}
   if(!g('t-stage')){if(isNew){toast('⚠ Select the trip stage');return}}
@@ -1123,7 +1145,8 @@ $('#t-save').onclick=()=>{
   const recvs=fR.filter(p=>num(p.amt)>0).map(p=>({id:p.id,date:p.date||todayStr(),amt:r2(num(p.amt)),ref:String(p.ref||'').trim(),bank:!!p.bank,grp:p.grp||undefined}));
   const paids=fP.filter(p=>num(p.amt)>0).map(p=>({id:p.id,date:p.date||todayStr(),amt:r2(num(p.amt)),ref:String(p.ref||'').trim(),bank:!!p.bank,grp:p.grp||undefined}));
   if(sumA(recvs)>gr+0.005&&(isNew||sumA(recvs)>num(prevT.recvAmt)+0.005)){toast('⚠ Received total is more than the amount due ('+inr(gr)+')');return}
-  if(sumA(paids)>fr-cm+0.005&&(isNew||sumA(paids)>num(prevT.paidAmt)+0.005)){toast('⚠ Paid total is more than the transporter amount ('+inr(fr-cm)+')');return}
+  const tgr=fr-cm+tbGstAmt(fr-cm);
+  if(sumA(paids)>tgr+0.005&&(isNew||sumA(paids)>num(prevT.paidAmt)+0.005)){toast('⚠ Paid total is more than the transporter amount ('+inr(tgr)+')');return}
   const becamePaid=newSts.includes('Transporter Paid')&&!(prevT&&hasSt(prevT,'Transporter Paid'));
   if(newSts.includes('Transporter Paid')){
     if(!paids.length){toast('⚠ Add the payment made to transporter');return}
@@ -1134,7 +1157,7 @@ $('#t-save').onclick=()=>{
   const o={
     lr:g('t-lr'),date:g('t-date'),vehicle:normV(g('t-veh')),from:g('t-from'),to:g('t-to'),omc:g('t-omc'),material:g('t-mat'),qty:qty,frRate:frR,commRate:cmR,
     freight:fr,comm:cm,clientId:cl?cl.id:'',party:cl?cl.name:'',tname:tv[0],tphone:tv[1]||'',
-    tripSource:fSrc,baId:fSrc==='BA'&&ba?ba.id:'',ba:fSrc==='BA'&&ba?ba.name:'',taxMode:fTax,
+    tBill:fTb,tRate:(fTb==='GST'||fTb==='RCM')?tbRate():0,tripSource:fSrc,baId:fSrc==='BA'&&ba?ba.id:'',ba:fSrc==='BA'&&ba?ba.name:'',taxMode:fTax,
     driverId:dr?dr.id:'',driverName:dr?dr.name:'',
     recvs,paids,statuses:newSts,status:newSts[0]||'',waitSince:prevT?prevT.waitSince||'':'',remarks:g('t-rm')
   };
@@ -1207,7 +1230,13 @@ function accTotals(R){
   const opening=r2(num(db.settings.openAmt)+before.reduce((s,r)=>s+(r.type==='recv'?r.amt:-r.amt),0));
   const closing=r2(opening+rec-paid-wd);
   let toCollect=0,toPay=0;trips.forEach(t=>{const c=calc(t);toCollect+=c.partyDue;toPay+=c.transDue});
-  return{L,inL,comm,rec,paid,wd,opening,closing,toCollect:r2(toCollect),toPay:r2(toPay),surplus:r2(comm-wd),gstDiff:r2(rec-comm),gstRate:(num(db.settings.firm.cgst)+num(db.settings.firm.sgst)),gst:Math.max(0,r2((rec-comm)*(num(db.settings.firm.cgst)+num(db.settings.firm.sgst))/100))};
+  // GST estimate: GST charged on my GST bills - credit on transporter GST bills - credit on RCM tax I pay (+ RCM tax paid in cash)
+  const gOut=r2(pt.filter(t=>t.taxMode==='GST').reduce((s,t)=>s+calc(t).tax,0));
+  const gIn=r2(pt.reduce((s,t)=>s+calc(t).transGst,0));
+  const gRcm=r2(pt.reduce((s,t)=>s+calc(t).rcmTax,0));
+  const gNet=Math.max(0,r2(gOut-gIn-gRcm)),gCarry=Math.max(0,r2(gIn+gRcm-gOut));
+  const gUnset=pt.filter(t=>!t.tBill).length,gMix=pt.filter(t=>t.taxMode==='RCM'&&t.tBill==='GST').length;
+  return{L,inL,comm,rec,paid,wd,opening,closing,toCollect:r2(toCollect),toPay:r2(toPay),surplus:r2(comm-wd),gOut,gIn,gRcm,gNet,gCarry,gUnset,gMix,gst:r2(gNet+gRcm)};
 }
 function renderAcc(){
   fillSel('#a-per',[{v:'ledger',l:'Since ledger start ('+fmtD(db.settings.ledgerStart)+')'},{v:'month',l:'Pick a month'},{v:'all',l:'All time'}],{v:aPer,l:''},null);
@@ -1230,7 +1259,17 @@ function renderAcc(){
    '<div class="stat"><small>Total To Pay (all trips)</small><strong class="red">'+inr(T.toPay)+'</strong></div>'+
    '<div class="stat" style="grid-column:1/3"><small>Estimated GST Payable</small><strong class="red">'+inr(T.gst)+'</strong></div></div>';
   h+='<div class="mc" style="margin-top:12px"><h3>🏦 Surplus / Deficit</h3><div class="kv"><span>Total Commission Earned</span><b>'+inr2(T.comm)+'</b></div><div class="kv"><span>Total Personal Withdrawals</span><b>'+inr2(T.wd)+'</b></div><div class="kv"><span><b>'+sd[0]+'</b></span><b class="'+sd[1]+'">'+inr2(Math.abs(T.surplus))+'</b></div></div>';
-  h+='<div class="mc"><h3>🧮 Estimated GST Payable</h3><div class="kv"><span>Total Payments Received</span><b>'+inr2(T.rec)+'</b></div><div class="kv"><span>Total Commission Earned</span><b>'+inr2(T.comm)+'</b></div><div class="kv"><span>Balance (Received − Commission)</span><b class="'+(T.gstDiff<0?'red':'')+'">'+inr2(T.gstDiff)+'</b></div><div class="kv"><span>GST rate on balance</span><b>'+T.gstRate+'%</b></div><div class="kv"><span><b>Estimated GST Payable</b></span><b class="red">'+inr2(T.gst)+'</b></div>'+(T.gstDiff<0?'<div class="note">Negative difference of '+inr2(Math.abs(T.gstDiff))+': commission is more than payments received, so there is no balance to count GST on and the estimate is ₹0.</div>':'')+'<div class="note">Estimated GST = Balance × '+T.gstRate+'% (CGST + SGST from Settings).</div>'+'<div class="note" style="color:var(--red)"><b>Estimated only — not a verified statutory GST liability.</b> Confirm with your CA before filing.</div></div>';
+  h+='<div class="mc"><h3>🧮 Estimated GST Payable</h3>'+
+   '<div class="kv"><span>GST charged on my GST bills</span><b>'+inr2(T.gOut)+'</b></div>'+
+   '<div class="kv"><span>Less: credit on transporters\' GST bills</span><b>− '+inr2(T.gIn)+'</b></div>'+
+   '<div class="kv"><span>Less: credit on RCM tax I pay</span><b>− '+inr2(T.gRcm)+'</b></div>'+
+   '<div class="kv"><span>Net GST to pay in return</span><b>'+inr2(T.gNet)+'</b></div>'+
+   '<div class="kv"><span>Plus: RCM tax I pay in cash first</span><b>'+inr2(T.gRcm)+'</b></div>'+
+   '<div class="kv"><span><b>Estimated GST Payable</b></span><b class="red">'+inr2(T.gst)+'</b></div>'+
+   (T.gCarry>0?'<div class="note">Credit of '+inr2(T.gCarry)+' is more than the GST charged in this period, so it carries forward. Ask your CA how to use it.</div>':'')+
+   (T.gMix>0?'<div class="note" style="color:var(--red)">⚠ '+T.gMix+' trip(s) have an RCM bill to the client but a GST bill from the transporter. You collect no GST on them, so credit can pile up.</div>':'')+
+   (T.gUnset>0?'<div class="note">'+T.gUnset+' trip(s) in this period have no transporter bill type set (old trips) — they are left out of the credit.</div>':'')+
+   '<div class="note" style="color:var(--red)"><b>Estimated only — not a verified statutory GST liability.</b> Rates and credit rules depend on your registration. Confirm with your CA before filing.</div></div>';
   h+='<div class="mc"><h3>🏦 Bank Ledger</h3><div class="kv"><span>Opening balance ('+(R.from?fmtD(R.from):fmtD(db.settings.ledgerStart))+')</span><b>'+inr2(T.opening)+'</b></div>'+
    '<div class="mini"><button class="btn2 k" data-aa="open">✏ Opening balance</button></div>'+
    '<div class="grid" style="margin-top:10px;gap:8px"><button class="btn2 g" data-aa="rcv">＋ Receive from client</button><button class="btn2 y" data-aa="pay">＋ Pay transporter</button><button class="btn2 r" data-aa="wd">＋ Personal withdrawal</button><button class="btn2 k" data-aa="oth">＋ Other entry</button></div>';
@@ -1310,7 +1349,7 @@ function editLedger(id){
         $$('#mbox .payrow').forEach(row=>{
           const x=r.pays[+row.dataset.i],d=row.querySelector('[data-f=date]').value,a=r2(num(row.querySelector('[data-f=amt]').value));
           if(!d||!(a>0))throw new Error('Enter date and amount');
-          const lim=r.type==='recv'?calc(x.t).gross:num(x.t.freight)-num(x.t.comm);
+          const lim=r.type==='recv'?calc(x.t).gross:calc(x.t).transGross;
           const others=sumA(x.t[r.type==='recv'?'recvs':'paids'])-num(x.p.amt);
           if(others+a>lim+0.005)throw new Error('More than the trip amount ('+inr(lim)+')');
           x.p.date=d;x.p.amt=a;x.p.ref=row.querySelector('[data-f=ref]').value.trim();
