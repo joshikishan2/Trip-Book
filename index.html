@@ -472,7 +472,7 @@ function calc(t){
   const transTotal=fr-cm,gross=(t.billGross!=null&&t.invoiceId)?num(t.billGross):grossOf(fr,t.taxMode);
   const pdue=r2(gross-rc);
   const trate=num(t.tRate)||(t.tBill==='RCM'?5:t.tBill==='GST'?18:0);
-  const tg=t.tBill==='GST'?r2(transTotal*trate/100):0,rcm=t.tBill==='RCM'?r2(transTotal*trate/100):0,tgross=transTotal+tg;   // transporter GST bill: I owe him base + GST; RCM: I pay the tax to the government myself
+  const tg=t.tBill==='GST'?r2(transTotal*trate/100):0,rcm=(t.tBill==='RCM'&&t.taxMode!=='RCM')?r2(transTotal*trate/100):0,tgross=transTotal+tg;   // (client RCM: client pays the tax, so I pay none) transporter GST bill: I owe him base + GST; RCM: I pay the tax to the government myself
   return{fr,cm,rc,pd,transTotal,gross,tax:r2(gross-fr),profit:rc-pd,
     partyDue:pdue>1?pdue:0,                     // up to Re 1 of bill round-off is treated as settled
     transGst:tg,rcmTax:rcm,transGross:tgross,
