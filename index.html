@@ -1032,7 +1032,7 @@ $('#add-p').onclick=()=>{const T=formTotals();const left=r2(T.fr-T.cm+tbGstAmt(T
 ['t-qty','t-fr','t-cm'].forEach(i=>$('#'+i).addEventListener('input',recalcForm));
 
 $$('#sg-src button').forEach(b=>b.onclick=()=>{fSrc=b.dataset.v;setSeg('sg-src',fSrc);$('#ba-wrap').style.display=fSrc==='BA'?'':'none'});
-function setTb(v,rate){fTb=v;setSeg('sg-tb',v);$('#tb-rate-wrap').style.display=(v==='GST'||v==='RCM')?'':'none';$('#t-tbr').value=(v==='GST'||v==='RCM')?(rate||(v==='RCM'?5:18)):'';recalcForm()}
+function setTb(v,rate){fTb=v;setSeg('sg-tb',v);$('#tb-rate-wrap').style.display=(v==='GST'||v==='RCM')?'':'none';{const l=$('#tb-rate-wrap label');if(l)l.textContent=v==='RCM'?'RCM rate % (I pay this to govt, NOT added to transporter payment)':'Transporter GST rate % (added to transporter bill)'}$('#t-tbr').value=(v==='GST'||v==='RCM')?(rate||(v==='RCM'?5:18)):'';recalcForm()}
 $$('#sg-tb button').forEach(b=>b.onclick=()=>setTb(b.dataset.v));
 $('#t-tbr').addEventListener('input',recalcForm);
 $('#t-tn').addEventListener('change',e=>{const n=e.target.value.split('||')[0],x=master.trn.find(y=>y.n===n);if(x&&x.g)setTb(x.g,x.gr)});
@@ -1271,7 +1271,7 @@ function renderAcc(){
    '<div class="kv"><span>Less: credit on transporters\' GST bills</span><b>− '+inr2(T.gIn)+'</b></div>'+
    '<div class="kv"><span>Less: credit on RCM tax I pay</span><b>− '+inr2(T.gRcm)+'</b></div>'+
    '<div class="kv"><span>Net GST to pay in return</span><b>'+inr2(T.gNet)+'</b></div>'+
-   '<div class="kv"><span>Plus: RCM tax I pay in cash first</span><b>'+inr2(T.gRcm)+'</b></div>'+
+   '<div class="kv"><span>Plus: RCM tax I pay to govt (not to transporter)</span><b>'+inr2(T.gRcm)+'</b></div>'+
    '<div class="kv"><span><b>Estimated GST Payable</b></span><b class="red">'+inr2(T.gst)+'</b></div>'+
    (T.gCarry>0?'<div class="note">Credit of '+inr2(T.gCarry)+' is more than the GST charged in this period, so it carries forward. Ask your CA how to use it.</div>':'')+
    (T.gMix>0?'<div class="note" style="color:var(--red)">⚠ '+T.gMix+' trip(s) have an RCM bill to the client but a GST bill from the transporter. You collect no GST on them, so credit can pile up.</div>':'')+
