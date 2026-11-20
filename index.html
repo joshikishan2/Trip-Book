@@ -1500,6 +1500,10 @@ $('#iv-share').onclick=async()=>{
 
 /* ---------- Billing screen ---------- */
 let bTab='new',bCli='',bTax='all',bOld=false,bSep=false;const bSel=new Set();
+let bPM=(()=>{const d=new Date(),n=d.getDate()>=16?0:-1,x=new Date(d.getFullYear(),d.getMonth()+n,1);return x.getFullYear()+'-'+pad(x.getMonth()+1)})();
+let bPH=(new Date().getDate()>=16)?'1':'2';   // default: the half-month that has just ended
+function bPer(){const y=+bPM.slice(0,4),m=+bPM.slice(5,7),last=new Date(y,m,0).getDate(),a=bPH==='1'?1:16,e=bPH==='1'?15:last;return{a:bPM+'-'+pad(a),e:bPM+'-'+pad(e),txt:dMonY(bPM+'-'+pad(a))+' to '+dMonY(bPM+'-'+pad(e))}}
+function eligibleFor(cid){const P=bPer();return trips.filter(t=>t.clientId===cid&&!t.invoiceNo&&(t.date||'')>=P.a&&(t.date||'')<=P.e&&(bOld||!legacyBilled(t))&&(bTax==='all'||t.taxMode===bTax||!t.taxMode))}
 const legacyBilled=t=>!t.invoiceNo&&(hasSt(t,'Bill Company Done')||stIdx(t)>=S_BILL);
 $('#b-tabs').addEventListener('click',e=>{const b=e.target.closest('button[data-b]');if(b){bTab=b.dataset.b;renderBill()}});
 function renderBill(){
@@ -1507,22 +1511,24 @@ function renderBill(){
   bTab==='new'?billNew():billHist();
 }
 function eligible(){
-  return trips.filter(t=>t.clientId===bCli&&!t.invoiceNo&&(bOld||!legacyBilled(t))&&(bTax==='all'||t.taxMode===bTax||!t.taxMode)).sort((a,b)=>(a.date||'').localeCompare(b.date||''));
+  return eligibleFor(bCli).sort((a,b)=>(a.date||'').localeCompare(b.date||''));
 }
 function billNew(){
-  const cl=db.clients.filter(c=>c.active!==false||c.id===bCli).sort(byName);
-  let h='<div class="filters"><label style="margin-top:0">1. Select client</label><select id="b-cli"><option value="">-- Select client --</option>'+cl.map(c=>'<option value="'+c.id+'"'+(c.id===bCli?' selected':'')+'>'+esc(c.name)+'</option>').join('')+'</select>';
+  const cl=db.clients.map(c=>({c,n:eligibleFor(c.id).length})).filter(x=>x.n>0||x.c.id===bCli).sort((a,b)=>byName(a.c,b.c));
+  if(bCli&&!cl.some(x=>x.c.id===bCli))bCli='';
+  let h='<div class="filters"><label style="margin-top:0">1. Which part of the month to bill?</label><div class="row2"><input id="b-pm" type="month" value="'+bPM+'"><select id="b-ph"><option value="1"'+(bPH==='1'?' selected':'')+'>1st – 15th</option><option value="2"'+(bPH==='2'?' selected':'')+'>16th – month end</option></select></div><div class="note" style="margin:4px 0 0">Period: <b>'+bPer().txt+'</b> · only clients with unbilled trips in this period are shown.</div>'+
+   '<label>2. Select client</label><select id="b-cli"><option value="">'+(cl.length?'-- Select client --':'No unbilled trips in this period')+'</option>'+cl.map(x=>'<option value="'+x.c.id+'"'+(x.c.id===bCli?' selected':'')+'>'+esc(x.c.name)+' ('+x.n+' trip'+(x.n===1?'':'s')+')</option>').join('')+'</select>';
   if(bCli){
     const c=cliById(bCli);
     if(c&&(!c.gstin||!c.address))h+='<div class="note">GSTIN / address are asked when you generate the bill and remembered for next time.</div>';
-    h+='<label>2. Tax type</label><div class="seg" id="b-taxseg"><button data-v="all" class="'+(bTax==='all'?'on':'')+'">All</button><button data-v="GST" class="'+(bTax==='GST'?'on':'')+'">GST</button><button data-v="RCM" class="'+(bTax==='RCM'?'on':'')+'">RCM</button></div>'+
+    h+='<label>3. Tax type</label><div class="seg" id="b-taxseg"><button data-v="all" class="'+(bTax==='all'?'on':'')+'">All</button><button data-v="GST" class="'+(bTax==='GST'?'on':'')+'">GST</button><button data-v="RCM" class="'+(bTax==='RCM'?'on':'')+'">RCM</button></div>'+
      '<label class="tog" style="margin-top:12px"><input type="checkbox" id="b-old"'+(bOld?' checked':'')+'> Also show trips already marked “Bill to Company Done” (old, billed outside)</label>';
   }
   h+='</div>';
   if(bCli){
     const l=eligible();
     for(const id of [...bSel])if(!l.some(t=>t.id===id))bSel.delete(id);
-    h+='<h2>3. Select trips <span style="font-weight:400;color:var(--mu)">(unbilled only)</span></h2>';
+    h+='<h2>4. Select trips <span style="font-weight:400;color:var(--mu)">(unbilled only)</span></h2>';
     if(!l.length)h+='<div class="empty">No unbilled trips for this client.</div>';
     else{
       h+='<div class="mini" style="margin:0 0 8px"><button class="btn2 g" id="b-all">Select all</button><button class="btn2 k" id="b-none">Clear</button></div>';
@@ -1546,7 +1552,9 @@ function billNew(){
 }
 $('#b-body').addEventListener('change',e=>{
   const t=e.target;
-  if(t.id==='b-cli'){bCli=t.value;bSel.clear();billNew()}
+  if(t.id==='b-pm'){if(t.value){bPM=t.value;bSel.clear();billNew()}}
+  else if(t.id==='b-ph'){bPH=t.value;bSel.clear();billNew()}
+  else if(t.id==='b-cli'){bCli=t.value;bSel.clear();billNew()}
   else if(t.id==='b-old'){bOld=t.checked;billNew()}
   else if(t.id==='b-sep'){bSep=t.checked}
   else if(t.dataset.bt){t.checked?bSel.add(t.dataset.bt):bSel.delete(t.dataset.bt);billNew()}
@@ -1568,14 +1576,11 @@ function previewGen(){
   const mode=sel[0].taxMode;
   const sep=$('#b-sep')?$('#b-sep').checked:bSep;
   modal('<h3>🧾 Generate invoice</h3><div class="kv"><span>Client</span><b style="text-align:right">'+esc(c.name)+'</b></div><div class="kv"><span>Type</span><b>'+(mode==='RCM'?'RCM (no GST charged)':'GST ('+db.settings.firm.cgst+'% + '+db.settings.firm.sgst+'%)')+'</b></div><div class="kv"><span>Trips</span><b>'+sel.length+(sep?' (separate bills)':' (one consolidated bill)')+'</b></div>'+
-   '<label>Client GSTIN</label><input id="g-g" value="'+esc(c.gstin||'')+'" maxlength="15" autocapitalize="characters"><label>Client address <i>(optional)</i></label><input id="g-a" value="'+esc(c.address||'')+'"><label>Bill date</label><input id="g-d" type="date" value="'+todayStr()+'"><label>Bill period</label><div class="row2"><input id="g-pm" type="month" value="'+ds[0].slice(0,7)+'"><select id="g-ph"><option value="1">1st – 15th</option><option value="2">16th – month end</option></select></div><div class="note" id="g-pw" style="color:var(--red)"></div>'+
+   '<label>Client GSTIN</label><input id="g-g" value="'+esc(c.gstin||'')+'" maxlength="15" autocapitalize="characters"><label>Client address <i>(optional)</i></label><input id="g-a" value="'+esc(c.address||'')+'"><label>Bill date</label><input id="g-d" type="date" value="'+todayStr()+'"><div class="kv"><span>Bill period</span><b>'+bPer().txt+'</b></div>'+
    '<div class="note" id="g-no" style="font-size:15px"></div>'+
    '<div class="note">The invoice number is taken only after the bill is created successfully. If anything fails, no trip is changed.</div>'+
    '<div class="row2"><button class="big gry" id="g-no2" style="margin-top:12px">Cancel</button><button class="big" id="g-ok" style="margin-top:12px">Generate</button></div>',m=>{
-    const perOf=()=>{const mo=m.querySelector('#g-pm').value||ds[0].slice(0,7),h=m.querySelector('#g-ph').value,y=+mo.slice(0,4),mm=+mo.slice(5,7),last=new Date(y,mm,0).getDate(),a=h==='1'?1:16,e=h==='1'?15:last;return{txt:dMonY(mo+'-'+pad(a))+' to '+dMonY(mo+'-'+pad(e)),a:mo+'-'+pad(a),e:mo+'-'+pad(e)}};
-    m.querySelector('#g-ph').value=(+ds[0].slice(8,10)<=15)?'1':'2';
-    const chk=()=>{const p=perOf(),out=sel.filter(t=>t.date<p.a||t.date>p.e).length;m.querySelector('#g-pw').textContent=out?'⚠ '+out+' selected trip(s) fall outside this period.':''};
-    m.querySelector('#g-pm').onchange=chk;m.querySelector('#g-ph').onchange=chk;chk();
+    const perOf=()=>bPer();
     const upd=()=>{const d=m.querySelector('#g-d').value||todayStr();let s=nextNo(d);if(sep&&sel.length>1)s+=' … +'+(sel.length-1)+' more';m.querySelector('#g-no').innerHTML='Invoice number: <b>'+esc(s)+'</b>'};
     m.querySelector('#g-d').onchange=upd;upd();
     m.querySelector('#g-no2').onclick=closeModal;
