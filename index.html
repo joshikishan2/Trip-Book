@@ -1449,7 +1449,8 @@ function fitInv(){
 }
 window.addEventListener('resize',()=>{if($('#invv').classList.contains('on'))fitInv()});
 $('#iv-close').onclick=()=>{$('#invv').classList.remove('on');$('#invwrap').innerHTML='';viewInvId=null;refreshView()};
-$('#iv-print').onclick=()=>{const w=$('#invwrap');w.style.transform='';w.style.marginBottom='';window.print();setTimeout(fitInv,300)};
+function invFileName(inv){return (inv.client.name+' - '+inv.no+' - '+inv.period).replace(/[\/\\:*?"<>|]+/g,'-').replace(/\s+/g,' ').trim()}
+$('#iv-print').onclick=()=>{const inv=db.invoices.find(x=>x.id===viewInvId),old=document.title;if(inv)document.title=invFileName(inv);const w=$('#invwrap');w.style.transform='';w.style.marginBottom='';window.print();setTimeout(()=>{fitInv();document.title=old},800)};
 
 function buildPDF(pages){
   const enc=new TextEncoder(),parts=[],offs=[];let len=0;
@@ -1494,7 +1495,7 @@ async function invPDF(inv){
 $('#iv-share').onclick=async()=>{
   const inv=db.invoices.find(x=>x.id===viewInvId);if(!inv)return;
   toast('Making PDF…');
-  try{const blob=await invPDF(inv);saveFile(blob,'Bill_'+inv.no.replace(/[\/\\]/g,'-')+'.pdf','application/pdf')}
+  try{const blob=await invPDF(inv);saveFile(blob,invFileName(inv)+'.pdf','application/pdf')}
   catch(e){toast('⚠ Could not make PDF — use Print / PDF')}
 };
 
