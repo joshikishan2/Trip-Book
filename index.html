@@ -1296,6 +1296,12 @@ function renderAcc(){
   h+='<div class="mc"><h3>📅 Month-wise History</h3><div class="scroll"><table class="t"><tr><th>Month</th><th class="r">Commission</th><th class="r">Received</th><th class="r">Made</th><th class="r">Withdrawn</th><th class="r">Surplus</th></tr>'+
    ms.map(m=>{const co=r2(trips.filter(t=>(t.date||'').startsWith(m)).reduce((s,t)=>s+num(t.comm),0));const lm=L.filter(r=>r.date.startsWith(m));const f=ty=>r2(lm.filter(r=>r.type===ty).reduce((s,r)=>s+r.amt,0));const w=f('wd');
      return '<tr><td>'+monLabel(m)+'</td><td class="r">'+inr(co)+'</td><td class="r">'+inr(f('recv'))+'</td><td class="r">'+inr(f('paid'))+'</td><td class="r">'+inr(w)+'</td><td class="r '+(co-w<0?'red':'')+'">'+inr(co-w)+'</td></tr>'}).join('')+'</table></div><div class="note">Date-wise entries are in the Bank Ledger above.</div></div>';
+  {const gm=[...new Set(trips.filter(t=>t.date).map(t=>t.date.slice(0,7)))].sort();let cf=0,rows=[],tot=0;
+   gm.forEach(m=>{const pt=trips.filter(t=>(t.date||'').startsWith(m)),cs=pt.map(calc);
+    const o=r2(pt.reduce((s,t,i)=>s+(t.taxMode==='GST'?cs[i].tax:0),0)),i2=r2(cs.reduce((s,c)=>s+c.transGst,0)),rc=r2(cs.reduce((s,c)=>s+c.rcmTax,0));
+    const n=r2(o-i2-rc-cf),pay=r2(Math.max(0,n)+rc);cf=Math.max(0,r2(-n));tot+=pay;
+    rows.push('<tr><td>'+monLabel(m)+'</td><td class="r">'+inr(o)+'</td><td class="r">'+inr(i2+rc)+'</td><td class="r">'+inr(rc)+'</td><td class="r red"><b>'+inr(pay)+'</b></td></tr>')});
+   if(rows.length)h+='<div class="mc"><h3>🧮 GST Payable – Month-wise (estimate)</h3><div class="scroll"><table class="t"><tr><th>Month</th><th class="r">GST charged</th><th class="r">Credit</th><th class="r">RCM paid</th><th class="r">Payable</th></tr>'+rows.reverse().join('')+'</table></div><div class="note">Payable = GST charged − credit (transporter GST + RCM) + RCM tax paid in cash. Extra credit carries to the next month'+(cf>0?' (credit carried now: '+inr2(cf)+')':'')+'. Estimate only — your CA confirms the return.</div></div>'}
   $('#a-body').innerHTML=h;
 }
 $('#a-per').addEventListener('change',()=>{aPer=$('#a-per').value;renderAcc()});
