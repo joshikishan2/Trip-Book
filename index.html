@@ -322,8 +322,26 @@ const getBk=()=>{try{return +localStorage.getItem(BKKEY)||0}catch(e){return 0}};
 const setBk=()=>{try{localStorage.setItem(BKKEY,String(Date.now()))}catch(e){}};
 
 /* ---------- modal helpers (no browser confirm/prompt) ---------- */
-function modal(html,wire){$('#mbox').innerHTML=html;$('#modal').classList.add('on');if(wire)wire($('#mbox'))}
-function closeModal(){$('#modal').classList.remove('on');$('#mbox').innerHTML=''}
+/* ---------- Back button: steps back through screens/popups instead of closing the app ---------- */
+const NAV={L:[],armed:false};
+function navPush(o){const top=NAV.L[NAV.L.length-1];if(top&&top.closed){NAV.L[NAV.L.length-1]=o;try{history.replaceState({tb:1},'')}catch(e){}}else{NAV.L.push(o);try{history.pushState({tb:1},'')}catch(e){}}}
+function navClose(t){const top=NAV.L[NAV.L.length-1];if(top&&top.t===t)top.closed=true}
+try{history.replaceState({tb:0},'');history.pushState({tb:1},'')}catch(e){}
+window.addEventListener('popstate',()=>{
+  const top=NAV.L.pop();
+  if(top){
+    if(top.closed){history.back();return}
+    if(top.t==='modal')closeModal(true);
+    else if(top.t==='inv')closeInv(true);
+    else if(top.t==='view')show(top.prev,true);
+    return;
+  }
+  if(cur!=='home'){show('home',true);history.pushState({tb:1},'');return}
+  if(NAV.armed){NAV.armed=false;history.back();return}
+  NAV.armed=true;toast('Press back again to exit');setTimeout(()=>{NAV.armed=false},2000);history.pushState({tb:1},'');
+});
+function modal(html,wire){const was=$('#modal').classList.contains('on');$('#mbox').innerHTML=html;$('#modal').classList.add('on');if(!was)navPush({t:'modal'});if(wire)wire($('#mbox'))}
+function closeModal(fromPop){if($('#modal').classList.contains('on')&&fromPop!==true)navClose('modal');$('#modal').classList.remove('on');$('#mbox').innerHTML=''}
 $('#modal').addEventListener('click',e=>{if(e.target.id==='modal')closeModal()});
 function ask(msg,okLabel,cb,danger){
   modal('<h3>'+esc(okLabel==='OK'?'Please confirm':'Confirm')+'</h3><div style="font-size:15px;line-height:1.5;margin:8px 0 14px">'+msg+'</div><div class="row2"><button class="big gry" style="margin:0" id="ak-no">Cancel</button><button class="big" style="margin:0;'+(danger?'background:var(--red)':'')+'" id="ak-ok">'+esc(okLabel)+'</button></div>',
@@ -538,7 +556,12 @@ const fmtHrs=h=>{const m=Math.floor(h*60),H=Math.floor(m/60);return H>=24?Math.f
 /* ---------- navigation ---------- */
 let cur='home';
 const RENDER={home:()=>renderHome(),list:()=>renderList(),acc:()=>renderAcc(),bill:()=>renderBill(),master:()=>renderMaster(),ana:()=>renderAna(),form:()=>{}};
-function show(v){
+function show(v,fromPop){
+  if(!fromPop&&v!==cur){
+    if(cur==='form')navClose('view');
+    else if(v==='home')NAV.L.forEach(x=>{if(x.t==='view')x.closed=true});
+    else navPush({t:'view',prev:cur});
+  }
   cur=v;
   $$('.view').forEach(x=>x.classList.toggle('on',x.id==='v-'+v));
   $$('nav button').forEach(b=>b.classList.toggle('on',b.dataset.go===v));
@@ -1491,6 +1514,7 @@ function viewInvoice(id){
   const inv=db.invoices.find(x=>x.id===id);if(!inv)return;
   viewInvId=id;
   $('#invwrap').innerHTML=invHTML(inv)+(inv.status==='cancelled'?'':'');
+  if(!$('#invv').classList.contains('on'))navPush({t:'inv'});
   $('#invv').classList.add('on');fitInv();
 }
 function fitInv(){
@@ -1499,7 +1523,8 @@ function fitInv(){
   w.style.transform='scale('+sc+')';w.style.marginBottom=(-(1-sc)*w.offsetHeight)+'px';
 }
 window.addEventListener('resize',()=>{if($('#invv').classList.contains('on'))fitInv()});
-$('#iv-close').onclick=()=>{$('#invv').classList.remove('on');$('#invwrap').innerHTML='';viewInvId=null;refreshView()};
+function closeInv(fromPop){if(fromPop!==true)navClose('inv');$('#invv').classList.remove('on');$('#invwrap').innerHTML='';viewInvId=null;refreshView()}
+$('#iv-close').onclick=()=>closeInv();
 function invFileName(inv){return (inv.client.name+' - '+inv.no+' - '+inv.period).replace(/[\/\\:*?"<>|]+/g,'-').replace(/\s+/g,' ').trim()}
 $('#iv-print').onclick=()=>{const inv=db.invoices.find(x=>x.id===viewInvId),old=document.title;if(inv)document.title=invFileName(inv);const w=$('#invwrap');w.style.transform='';w.style.marginBottom='';window.print();setTimeout(()=>{fitInv();document.title=old},800)};
 
@@ -1813,7 +1838,7 @@ function renderAna(){
 
 init();
 show('home');
-window.__tb={invPDF,viewInvoice,get trips(){return trips},get db(){return db},calc,idleList,generateInvoices,nextNo,invCalc,inWords,ledgerRows,accTotals,aRange,allocate,setStage,syncPay,migrateTrip,STAGES};
+window.__tb={ask,closeModal,invPDF,viewInvoice,get trips(){return trips},get db(){return db},calc,idleList,generateInvoices,nextNo,invCalc,inWords,ledgerRows,accTotals,aRange,allocate,setStage,syncPay,migrateTrip,STAGES};
 })();
 </script>
 </body>
