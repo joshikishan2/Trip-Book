@@ -222,6 +222,9 @@ table.t td.r,table.t th.r{text-align:right}
   <label>💰 Received from Client <i>(part payments allowed — each editable)</i></label>
   <div id="pay-r"></div>
   <button class="btn2 g" type="button" id="add-r" style="margin-top:8px;width:100%">＋ Add received payment</button>
+  <label>✂ TDS deducted by client <i>(short amount — not received in bank)</i></label>
+  <div id="pay-t"></div>
+  <button class="btn2" type="button" id="add-t" style="margin-top:8px;width:100%">＋ Add TDS deducted</button>
   <label>🚚 Paid to Transporter <i>(part payments allowed — each editable)</i></label>
   <div id="pay-p"></div>
   <button class="btn2 g" type="button" id="add-p" style="margin-top:8px;width:100%">＋ Add payment made</button>
@@ -411,6 +414,8 @@ function migrateTrip(t){
   // part payments
   if(!Array.isArray(t.recvs)){t.recvs=num(t.recvAmt)>0?[{id:uid(),date:t.date||'',amt:num(t.recvAmt),ref:t.recvRef||'',bank:false}]:[]}
   if(!Array.isArray(t.paids)){t.paids=num(t.paidAmt)>0?[{id:uid(),date:t.paidOn||t.date||'',amt:num(t.paidAmt),ref:t.paidRef||'',bank:false}]:[]}
+  if(!Array.isArray(t.tdsList))t.tdsList=[];
+  t.tdsAmt=Math.round(t.tdsList.reduce((s,x)=>s+(+x.amt||0),0)*100)/100;
   if(t.tripSource===undefined)t.tripSource=t.ba?'BA':'';
   if(t.taxMode===undefined)t.taxMode='';
   if(t.driverId===undefined){t.driverId='';t.driverName=t.driverName||''}
@@ -470,17 +475,17 @@ function init(){
 /* ---------- calculations ---------- */
 const sumA=a=>(a||[]).reduce((s,x)=>s+num(x.amt),0);
 function syncPay(t){
-  t.recvAmt=r2(sumA(t.recvs));t.paidAmt=r2(sumA(t.paids));
+  t.recvAmt=r2(sumA(t.recvs));t.paidAmt=r2(sumA(t.paids));t.tdsAmt=r2(sumA(t.tdsList));
   const last=a=>a.length?[...a].sort((x,y)=>(x.date||'').localeCompare(y.date||''))[a.length-1]:null;
   const lr=last(t.recvs||[]),lp=last(t.paids||[]);
   t.recvRef=lr?lr.ref||'':'';t.paidRef=lp?lp.ref||'':'';
   if(lp)t.paidOn=lp.date||t.paidOn||'';
   // billed trip: fully paid -> Completed; if a payment is removed -> back to Payment Pending
   if(t.invoiceId&&t.stage){const due=calc(t).partyDue;
-    if(t.stage===STAGES[S_BILL]&&t.recvAmt>0&&due===0)setStage(t,STAGES[S_DONE],undefined,true);
+    if(t.stage===STAGES[S_BILL]&&(t.recvAmt+t.tdsAmt)>0&&due===0)setStage(t,STAGES[S_DONE],undefined,true);
     else if(t.stage===STAGES[S_DONE]&&due>0)setStage(t,STAGES[S_BILL],undefined,true);}
   const fr=grossOf(num(t.freight),t.taxMode),tr=num(t.freight)-num(t.comm);
-  t.recvStatus=t.recvAmt>=fr-1&&fr>0?'Yes':t.recvAmt>0?'Partial':'No';
+  const rcT=t.recvAmt+t.tdsAmt;t.recvStatus=rcT>=fr-1&&fr>0?'Yes':rcT>0?'Partial':'No';
   t.paidStatus=t.paidAmt>=tr&&tr>0?'Yes':t.paidAmt>0?'Partial':'No';
 }
 const taxRate=mode=>mode==='GST'?(num(db.settings.firm.cgst)+num(db.settings.firm.sgst))/100:0;
@@ -488,10 +493,10 @@ const grossOf=(fr,mode)=>r2(fr+fr*taxRate(mode));   // what the client owes: fre
 function calc(t){
   const fr=num(t.freight),cm=num(t.comm),rc=num(t.recvAmt),pd=num(t.paidAmt);
   const transTotal=fr-cm,gross=(t.billGross!=null&&t.invoiceId)?num(t.billGross):grossOf(fr,t.taxMode);
-  const pdue=r2(gross-rc);
+  const td=num(t.tdsAmt),pdue=r2(gross-rc-td);
   const trate=num(t.tRate)||(t.tBill==='RCM'?5:t.tBill==='GST'?18:0);
   const tg=t.tBill==='GST'?r2(transTotal*trate/100):0,rcm=(t.tBill==='RCM'&&t.taxMode!=='RCM')?r2(transTotal*trate/100):0,tgross=transTotal+tg;   // (client RCM: client pays the tax, so I pay none) transporter GST bill: I owe him base + GST; RCM: I pay the tax to the government myself
-  return{fr,cm,rc,pd,transTotal,gross,tax:r2(gross-fr),profit:rc-pd,
+  return{fr,cm,rc,td,pd,transTotal,gross,tax:r2(gross-fr),profit:rc-pd,
     partyDue:pdue>1?pdue:0,                     // up to Re 1 of bill round-off is treated as settled
     transGst:tg,rcmTax:rcm,transGross:tgross,
     transDue:Math.max(0,r2(tgross-pd))};
@@ -1015,42 +1020,44 @@ const XMIME='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
 function stamp(){return todayStr()}
 
 /* ---------- trip form ---------- */
-let editId=null,fSrc='',fTax='',fTb='',fR=[],fP=[];
+let editId=null,fSrc='',fTax='',fTb='',fR=[],fP=[],fT=[];
 const tbRate=()=>num($('#t-tbr').value)||(fTb==='RCM'?5:fTb==='GST'?18:0);
 const tbGstAmt=base=>fTb==='GST'?r2(base*tbRate()/100):0;
 const setSeg=(id,val)=>$$('#'+id+' button').forEach(b=>b.classList.toggle('on',b.dataset.v===val));
 const NEWOPT='__new';
 function formTotals(){const q=num($('#t-qty').value);const fr=r2(q*num($('#t-fr').value));const pt=editId?trips.find(x=>x.id===editId):null;return{q,fr,gross:(pt&&pt.invoiceId&&pt.billGross!=null)?num(pt.billGross):grossOf(fr,fTax),cm:r2(q*num($('#t-cm').value))}}
 function recalcForm(){
-  const T=formTotals(),rc=r2(sumA(fR)),pd=r2(sumA(fP));
+  const T=formTotals(),rc=r2(sumA(fR)),td=r2(sumA(fT)),pd=r2(sumA(fP));
   const tbase=T.fr-T.cm,tg=tbGstAmt(tbase),tr=tbase+tg;
   $('#t-calc').innerHTML=`📦 Total Freight (Qty × Rate): <b>${inr(T.fr)}</b><br>
    💼 My Total Commission: <b>${inr(T.cm)}</b><br>
    🚚 Total payable to transporter: <b>${inr(tr)}</b>${tg?' (incl. GST '+inr(tg)+')':''}<br>
-   ${T.gross!==T.fr?'🧾 GST on freight: <b>'+inr(T.gross-T.fr)+'</b> · Client owes: <b>'+inr(T.gross)+'</b><br>':''}💰 Received: <b>${inr(rc)}</b> · Balance receivable: <b style="color:${T.gross-rc>1?'var(--red)':'var(--g2)'}">${inr(Math.max(0,T.gross-rc))}</b><br>
+   ${T.gross!==T.fr?'🧾 GST on freight: <b>'+inr(T.gross-T.fr)+'</b> · Client owes: <b>'+inr(T.gross)+'</b><br>':''}💰 Received: <b>${inr(rc)}</b>${td?' · ✂ TDS: <b>'+inr(td)+'</b>':''} · Balance receivable: <b style="color:${T.gross-rc-td>1?'var(--red)':'var(--g2)'}">${inr(Math.max(0,T.gross-rc-td))}</b><br>
    🚚 Paid: <b>${inr(pd)}</b> · Balance payable: <b style="color:${tr-pd>0?'var(--red)':'var(--g2)'}">${inr(Math.max(0,tr-pd))}</b><br>
    📈 Profit (Received − Paid): <b style="color:${rc-pd<0?'var(--red)':'var(--g2)'}">${inr(rc-pd)}</b>`;
 }
 function payRowHTML(k,p,i){
-  return '<div class="payrow" data-k="'+k+'" data-i="'+i+'"><div class="row2"><input type="date" data-f="date" value="'+esc(p.date)+'"><input type="number" inputmode="decimal" data-f="amt" placeholder="Amount ₹" value="'+esc(p.amt)+'"></div>'+
+  return '<div class="payrow" data-k="'+k+'" data-i="'+i+'"><div class="row2"><input type="date" data-f="date" value="'+esc(p.date)+'"><input type="number" inputmode="decimal" data-f="amt" placeholder="'+(k==='t'?'TDS amount ₹':'Amount ₹')+'" value="'+esc(p.amt)+'"></div>'+
    '<input data-f="ref" placeholder="Ref / UTR / Cheque no." value="'+esc(p.ref)+'" style="margin-top:6px;height:44px;font-size:15px">'+
-   '<div style="display:flex;justify-content:space-between;align-items:center;gap:8px"><label class="tog"><input type="checkbox" data-f="bank"'+(p.bank?' checked':'')+'> Add to bank ledger</label><button type="button" class="btn2 r" data-del style="margin-top:6px">✕ Remove</button></div>'+(p.grp?'<div class="note" style="margin:2px 0 0">Part of one invoice/bulk payment</div>':'')+'</div>';
+   '<div style="display:flex;justify-content:space-between;align-items:center;gap:8px">'+(k==='t'?'<span class="note" style="margin:6px 0 0">Not a bank entry</span>':'<label class="tog"><input type="checkbox" data-f="bank"'+(p.bank?' checked':'')+'> Add to bank ledger</label>')+'<button type="button" class="btn2 r" data-del style="margin-top:6px">✕ Remove</button></div>'+(p.grp?'<div class="note" style="margin:2px 0 0">Part of one invoice/bulk payment</div>':'')+'</div>';
 }
 function renderPays(){
   $('#pay-r').innerHTML=fR.length?fR.map((p,i)=>payRowHTML('r',p,i)).join(''):'<div class="note">No payment received yet.</div>';
+  $('#pay-t').innerHTML=fT.length?fT.map((p,i)=>payRowHTML('t',p,i)).join(''):'<div class="note">No TDS deducted.</div>';
   $('#pay-p').innerHTML=fP.length?fP.map((p,i)=>payRowHTML('p',p,i)).join(''):'<div class="note">No payment made yet.</div>';
   recalcForm();
 }
 function payEvt(e){
   const row=e.target.closest('.payrow');if(!row)return;
-  const A=row.dataset.k==='r'?fR:fP,i=+row.dataset.i;
+  const A=row.dataset.k==='r'?fR:row.dataset.k==='t'?fT:fP,i=+row.dataset.i;
   if(e.type==='click'){if(e.target.closest('[data-del]')){A.splice(i,1);renderPays()}return}
   const f=e.target.dataset.f;if(!f)return;
   A[i][f]=f==='bank'?e.target.checked:e.target.value;
   if(e.type==='input'||e.type==='change')recalcForm();
 }
-['#pay-r','#pay-p'].forEach(s=>['input','change','click'].forEach(ev=>$(s).addEventListener(ev,payEvt)));
-$('#add-r').onclick=()=>{const T=formTotals();const left=r2(T.gross-sumA(fR));fR.push({id:uid(),date:todayStr(),amt:left>0?left:'',ref:'',bank:todayStr()>=db.settings.ledgerStart});renderPays()};
+['#pay-r','#pay-t','#pay-p'].forEach(s=>['input','change','click'].forEach(ev=>$(s).addEventListener(ev,payEvt)));
+$('#add-r').onclick=()=>{const T=formTotals();const left=r2(T.gross-sumA(fR)-sumA(fT));fR.push({id:uid(),date:todayStr(),amt:left>0?left:'',ref:'',bank:todayStr()>=db.settings.ledgerStart});renderPays()};
+$('#add-t').onclick=()=>{fT.push({id:uid(),date:todayStr(),amt:'',ref:'',bank:false});renderPays()};
 $('#add-p').onclick=()=>{const T=formTotals();const left=r2(T.fr-T.cm+tbGstAmt(T.fr-T.cm)-sumA(fP));fP.push({id:uid(),date:todayStr(),amt:left>0?left:'',ref:'',bank:todayStr()>=db.settings.ledgerStart});renderPays()};
 ['t-qty','t-fr','t-cm'].forEach(i=>$('#'+i).addEventListener('input',recalcForm));
 
@@ -1137,7 +1144,7 @@ function openForm(id,pre){
   }
   setStageOptions(!t,t?t.stage:'Planned');
   $('#t-uct').value=t&&ucTime(t)?toLocalDT(ucTime(t)):'';
-  fR=t?t.recvs.map(p=>Object.assign({},p)):[];fP=t?t.paids.map(p=>Object.assign({},p)):[];
+  fR=t?t.recvs.map(p=>Object.assign({},p)):[];fP=t?t.paids.map(p=>Object.assign({},p)):[];fT=t?(t.tdsList||[]).map(p=>Object.assign({},p)):[];
   renderPays();
   setSts(t?sts(t):[]);
   $('#uc-wrap').style.display=t&&stIdx(t)>=S_UC?'':'none';
@@ -1166,8 +1173,9 @@ $('#t-save').onclick=()=>{
   const hidden=(prevT?sts(prevT):[]).filter(x=>TRANSIT.includes(x)||x==='Payment Pending'||x==='Bill Company Done');
   const newSts=[...getSts(),...hidden];
   const recvs=fR.filter(p=>num(p.amt)>0).map(p=>({id:p.id,date:p.date||todayStr(),amt:r2(num(p.amt)),ref:String(p.ref||'').trim(),bank:!!p.bank,grp:p.grp||undefined}));
+  const tdsList=fT.filter(p=>num(p.amt)>0).map(p=>({id:p.id,date:p.date||todayStr(),amt:r2(num(p.amt)),ref:String(p.ref||'').trim(),bank:false,grp:p.grp||undefined}));
   const paids=fP.filter(p=>num(p.amt)>0).map(p=>({id:p.id,date:p.date||todayStr(),amt:r2(num(p.amt)),ref:String(p.ref||'').trim(),bank:!!p.bank,grp:p.grp||undefined}));
-  if(sumA(recvs)>gr+0.005&&(isNew||sumA(recvs)>num(prevT.recvAmt)+0.005)){toast('⚠ Received total is more than the amount due ('+inr(gr)+')');return}
+  if(sumA(recvs)+sumA(tdsList)>gr+0.005&&(isNew||sumA(recvs)+sumA(tdsList)>num(prevT.recvAmt)+num(prevT.tdsAmt)+0.005)){toast('⚠ Received total is more than the amount due ('+inr(gr)+')');return}
   const tgr=fr-cm+tbGstAmt(fr-cm);
   if(sumA(paids)>tgr+0.005&&(isNew||sumA(paids)>num(prevT.paidAmt)+0.005)){toast('⚠ Paid total is more than the transporter amount ('+inr(tgr)+')');return}
   const becamePaid=newSts.includes('Transporter Paid')&&!(prevT&&hasSt(prevT,'Transporter Paid'));
@@ -1182,7 +1190,7 @@ $('#t-save').onclick=()=>{
     freight:fr,comm:cm,clientId:cl?cl.id:'',party:cl?cl.name:'',tname:tv[0],tphone:tv[1]||'',
     tBill:fTb,tRate:(fTb==='GST'||fTb==='RCM')?tbRate():0,tripSource:fSrc,baId:fSrc==='BA'&&ba?ba.id:'',ba:fSrc==='BA'&&ba?ba.name:'',taxMode:fTax,
     driverId:dr?dr.id:'',driverName:dr?dr.name:'',
-    recvs,paids,statuses:newSts,status:newSts[0]||'',waitSince:prevT?prevT.waitSince||'':'',remarks:g('t-rm')
+    recvs,tdsList,paids,statuses:newSts,status:newSts[0]||'',waitSince:prevT?prevT.waitSince||'':'',remarks:g('t-rm')
   };
   const snapT=JSON.stringify(trips);
   let saved;
@@ -1248,7 +1256,7 @@ function accTotals(R){
   const sm=ty=>r2(inL.filter(r=>r.type===ty).reduce((s,r)=>s+r.amt,0));
   const pt=trips.filter(t=>inR(t.date,R));
   const comm=r2(pt.reduce((s,t)=>s+num(t.comm),0));
-  const cRec=t=>{const g=calc(t).gross,cm=num(t.comm);return g>0?r2(cm*Math.min(1,num(t.recvAmt)/g)):0};
+  const cRec=t=>{const g=calc(t).gross,cm=num(t.comm);return g>0?r2(cm*Math.min(1,(num(t.recvAmt)+num(t.tdsAmt))/g)):0};
   const commRec=r2(pt.reduce((s,t)=>s+cRec(t),0)),commPend=r2(comm-commRec);
   const rec=sm('recv'),paid=sm('paid'),wd=sm('wd');
   const before=L.filter(r=>R.from&&r.date<R.from);
@@ -1308,9 +1316,14 @@ function renderAcc(){
   // receivables / payables
   const rcv={},pay={};
   trips.forEach(t=>{const c=calc(t);if(c.partyDue>0){const k=t.clientId||cliName(t);(rcv[k]=rcv[k]||{n:cliName(t),a:0,c:0}).a+=c.partyDue;rcv[k].c++}
-    if(c.transDue>0){const k=t.tname;(pay[k]=pay[k]||{n:t.tname,a:0,c:0}).a+=c.transDue;pay[k].c++}});
-  const lst=(o,ty)=>Object.keys(o).length?Object.keys(o).sort((a,b)=>o[b].a-o[a].a).map(k=>'<div class="mrow"><span><b>'+esc(o[k].n)+'</b><br><small>'+o[k].c+' trip(s)</small></span><b class="red">'+inr(o[k].a)+'</b><button class="btn2" data-aa="out" data-ty="'+ty+'" data-k="'+esc(k)+'">View</button></div>').join(''):'<div class="note">Nothing outstanding 🎉</div>';
-  h+='<div class="mc"><h3>📥 Outstanding Receivables (by client)</h3>'+lst(rcv,'r')+'</div><div class="mc"><h3>📤 Outstanding Payables (by transporter)</h3>'+lst(pay,'p')+'</div>';
+    if(c.transDue>0){const k=t.tname;const fu=Math.max(0,Math.min(r2(Math.min(c.rc,c.transGross)-c.pd),c.transDue));(pay[k]=pay[k]||{n:t.tname,a:0,c:0,f:0}).a+=c.transDue;pay[k].f+=fu;pay[k].c++}});
+  const lst=(o,ty)=>Object.keys(o).length?Object.keys(o).sort((a,b)=>o[b].a-o[a].a).map(k=>'<div class="mrow"><span><b>'+esc(o[k].n)+'</b><br><small>'+o[k].c+' trip(s)</small>'+(ty==='p'?(o[k].f>0.5?'<br><small style="color:var(--g2);font-weight:700">✔ Client already paid you '+inr(o[k].f)+' — pay him</small>':'')+((o[k].a-o[k].f)>0.5?'<br><small>⏳ Client yet to pay: '+inr(r2(o[k].a-o[k].f))+'</small>':''):'')+'</span><b class="red">'+inr(o[k].a)+'</b><button class="btn2" data-aa="out" data-ty="'+ty+'" data-k="'+esc(k)+'">View</button></div>').join(''):'<div class="note">Nothing outstanding 🎉</div>';
+  const pA=r2(Object.values(pay).reduce((s,x)=>s+x.a,0)),pF=r2(Object.values(pay).reduce((s,x)=>s+x.f,0));
+  h+='<div class="mc"><h3>📥 Outstanding Receivables (by client)</h3>'+lst(rcv,'r')+'</div><div class="mc"><h3>📤 Outstanding Payables (by transporter)</h3>'+(pA>0?'<div class="kv"><span>Total outstanding to transporters</span><b class="red">'+inr2(pA)+'</b></div><div class="kv"><span>✔ Client has paid me, I have not paid transporter</span><b class="grn">'+inr2(pF)+'</b></div><div class="kv"><span>⏳ Client has not paid me yet</span><b>'+inr2(r2(pA-pF))+'</b></div><div style="height:8px"></div>':'')+lst(pay,'p')+'</div>';
+  // TDS financial-year wise
+  {const fyM={};trips.forEach(t=>(t.tdsList||[]).forEach(p=>{const fy=fyOf(p.date||t.date||todayStr());const F=fyM[fy]=fyM[fy]||{a:0,c:{}};const a=num(p.amt);F.a+=a;const cn=cliName(t);F.c[cn]=(F.c[cn]||0)+a}));
+   const fys=Object.keys(fyM).sort().reverse();
+   h+='<div class="mc"><h3>✂ TDS Deducted – Financial Year wise</h3>'+(fys.length?fys.map(fy=>'<div class="kv"><span><b>FY '+fy+'</b></span><b class="blu">'+inr2(fyM[fy].a)+'</b></div>'+Object.keys(fyM[fy].c).sort((a,b)=>fyM[fy].c[b]-fyM[fy].c[a]).map(c=>'<div class="kv" style="padding-left:14px"><span><small>'+esc(c)+'</small></span><small>'+inr2(fyM[fy].c[c])+'</small></div>').join('')).join('')+'<div class="note">Financial year is April–March, by the date the TDS was recorded. Match with Form 26AS before claiming credit.</div>':'<div class="note">No TDS recorded yet. Add it in a trip (✂ TDS deducted) or when you receive a payment.</div>')+'</div>'}
   // month-wise history
   const L=T.L,months=new Set();trips.forEach(t=>t.date&&months.add(t.date.slice(0,7)));L.forEach(r=>months.add(r.date.slice(0,7)));
   const ms=[...months].sort().reverse();
@@ -1394,22 +1407,26 @@ function editLedger(id){
       closeModal();toast('✅ Updated');renderAcc();
     };
     m.querySelector('#e-del').onclick=()=>ask('Remove this payment from the trip(s) and the ledger?','Remove',()=>{
-      r.pays.forEach(x=>{const k=r.type==='recv'?'recvs':'paids';x.t[k]=x.t[k].filter(p=>p.id!==x.p.id)});
+      r.pays.forEach(x=>{const k=r.type==='recv'?'recvs':'paids';x.t[k]=x.t[k].filter(p=>p.id!==x.p.id);if(r.type==='recv'&&x.p.grp)x.t.tdsList=(x.t.tdsList||[]).filter(p=>p.grp!==x.p.grp)});
       r.trs.forEach(syncPay);save();renderAcc();
     },true);
   });
 }
 /* allocate a payment over trips (oldest first); returns false if it exceeds what is due */
-function allocate(list,kind,amt,date,ref,bank){
+function allocate(list,kind,amt,date,ref,bank,tds){
+  tds=r2(tds||0);
   const grp='g'+uid(),k=kind==='r'?'recvs':'paids';
-  let left=r2(amt);
+  let left=r2(amt+tds);const tot=left;
   const sorted=list.slice().sort((a,b)=>(a.date||'').localeCompare(b.date||'')||(a.created||0)-(b.created||0));
   const due=t=>kind==='r'?calc(t).partyDue:calc(t).transDue;
   if(left>r2(sorted.reduce((s,t)=>s+due(t),0))+0.005)return false;
   sorted.forEach(t=>{
     if(left<=0.004)return;const d=due(t);if(d<=0)return;
     const a=r2(Math.min(d,left));left=r2(left-a);
-    t[k].push({id:uid(),date,amt:a,ref,bank,grp});syncPay(t);
+    const tp=tds>0?r2(a*tds/tot):0,cp=r2(a-tp);
+    if(cp>0)t[k].push({id:uid(),date,amt:cp,ref,bank,grp});
+    if(tp>0){t.tdsList=t.tdsList||[];t.tdsList.push({id:uid(),date,amt:tp,ref,bank:false,grp})}
+    syncPay(t);
   });
   return true;
 }
@@ -1420,7 +1437,7 @@ function payModal(kind,fixed){
   const parties=isR?[...new Map(openT.map(t=>[t.clientId||cliName(t),{v:t.clientId||cliName(t),l:cliName(t)}])).values()]:[...new Map(openT.map(t=>[t.tname,{v:t.tname,l:t.tname}])).values()];
   if(!parties.length)return toast('Nothing outstanding');
   modal('<h3>'+(isR?'💰 Receive from client':'📤 Pay transporter')+'</h3><label>'+(isR?'Client':'Transporter')+'</label><select id="pm-p"></select>'+(isR?'<label>Against invoice <i>(optional)</i></label><select id="pm-i"></select>':'')+
-   '<div class="note" id="pm-due" style="margin:6px 0 0"></div><label>Date</label><input id="pm-d" type="date" value="'+todayStr()+'"><label>Amount ₹</label><input id="pm-a" type="number" inputmode="decimal"><label>Ref / UTR / Cheque no.</label><input id="pm-r"><label class="tog" style="margin-top:12px"><input type="checkbox" id="pm-b" checked> Add to bank ledger</label>'+
+   '<div class="note" id="pm-due" style="margin:6px 0 0"></div><label>Date</label><input id="pm-d" type="date" value="'+todayStr()+'"><label>'+(isR?'Amount received in bank ₹':'Amount ₹')+'</label><input id="pm-a" type="number" inputmode="decimal">'+(isR?'<label>TDS deducted by client ₹ <i>(optional — short amount)</i></label><input id="pm-t" type="number" inputmode="decimal" placeholder="0">':'')+'<label>Ref / UTR / Cheque no.</label><input id="pm-r"><label class="tog" style="margin-top:12px"><input type="checkbox" id="pm-b" checked> Add to bank ledger</label>'+
    '<div class="note">The amount is applied to the oldest unpaid trips first. Each trip keeps its own part-payment entry.</div><div class="row2"><button class="big gry" id="pm-no" style="margin-top:12px">Cancel</button><button class="big" id="pm-ok" style="margin-top:12px">Save</button></div>',m=>{
     const P=m.querySelector('#pm-p');
     P.innerHTML=parties.sort((a,b)=>a.l.localeCompare(b.l)).map(x=>'<option value="'+esc(x.v)+'">'+esc(x.l)+'</option>').join('');
@@ -1434,10 +1451,11 @@ function payModal(kind,fixed){
     m.querySelector('#pm-no').onclick=closeModal;
     m.querySelector('#pm-ok').onclick=()=>{
       const a=r2(num(m.querySelector('#pm-a').value)),d=m.querySelector('#pm-d').value,ref=m.querySelector('#pm-r').value.trim(),bank=m.querySelector('#pm-b').checked;
-      if(!d)return toast('Pick a date');if(!(a>0))return toast('Enter an amount');
+      const tds=isR?r2(num(m.querySelector('#pm-t').value)):0;
+      if(!d)return toast('Pick a date');if(!(a>0||tds>0))return toast('Enter an amount');if(tds<0)return toast('TDS cannot be negative');
       if(bank&&d<db.settings.ledgerStart)return toast('Date is before ledger start — untick "Add to bank ledger" or change the date');
       const snap=JSON.stringify(trips);
-      if(!allocate(sel(),kind,a,d,ref,bank)){trips=JSON.parse(snap);return toast('⚠ Amount is more than the outstanding')}
+      if(!allocate(sel(),kind,a,d,ref,bank,tds)){trips=JSON.parse(snap);return toast('⚠ Amount is more than the outstanding')}
       if(!save()){trips=JSON.parse(snap);return}
       closeModal();toast('✅ Payment saved');refreshView();
     };
@@ -1723,8 +1741,8 @@ function generateInvoices(cliId,ids,o){
 function invPaid(inv){
   const ts=trips.filter(t=>t.invoiceId===inv.id);
   const out=r2(ts.reduce((s,t)=>s+calc(t).partyDue,0));
-  const rec=r2(ts.reduce((s,t)=>s+num(t.recvAmt),0));
-  return{rec,out};
+  const rec=r2(ts.reduce((s,t)=>s+num(t.recvAmt),0)),tds=r2(ts.reduce((s,t)=>s+num(t.tdsAmt),0));
+  return{rec,tds,out};
 }
 function billHist(){
   const q=($('#b-hq')||{}).value||'';
@@ -1739,7 +1757,7 @@ function histRows(q){
   return db.invoices.slice().sort((a,b)=>(b.created||0)-(a.created||0)).filter(i=>!q||(i.no+' '+i.client.name).toLowerCase().includes(q)).map(i=>{
     const p=invPaid(i),can=i.status==='cancelled';
     return '<div class="card" style="'+(can?'opacity:.6':'')+'"><div class="top"><span class="veh" style="font-size:16px">'+esc(i.no)+'</span><span class="badge '+i.mode.toLowerCase()+'">'+i.mode+'</span></div>'+
-     '<div class="meta">'+dMonY(i.date)+' · <b>'+esc(i.client.name)+'</b><br>'+i.tripIds.length+' trip(s) · '+esc(i.period)+'<br>Bill amount: <b>'+inr2(i.grand)+'</b>'+(can?' · <span class="badge off">CANCELLED</span>':'<br>Received: <b class="grn">'+inr2(p.rec)+'</b> · Outstanding: <b class="red">'+inr2(p.out)+'</b>')+'</div>'+
+     '<div class="meta">'+dMonY(i.date)+' · <b>'+esc(i.client.name)+'</b><br>'+i.tripIds.length+' trip(s) · '+esc(i.period)+'<br>Bill amount: <b>'+inr2(i.grand)+'</b>'+(can?' · <span class="badge off">CANCELLED</span>':'<br>Received: <b class="grn">'+inr2(p.rec)+'</b>'+(p.tds>0?' · TDS: <b>'+inr2(p.tds)+'</b>':'')+' · Outstanding: <b class="red">'+inr2(p.out)+'</b>')+'</div>'+
      '<div class="mini"><button class="btn2" data-iv="view" data-id="'+i.id+'">👁 View / Print</button>'+(can?'':(p.out>0?'<button class="btn2 g" data-iv="pay" data-id="'+i.id+'">＋ Payment</button>':'')+'<button class="btn2 r" data-iv="can" data-id="'+i.id+'">Cancel</button>')+'</div></div>';
   }).join('')||'<div class="empty">No match.</div>';
 }
