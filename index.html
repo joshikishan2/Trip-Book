@@ -660,14 +660,14 @@ function renderBackupBanner(){
   else{b.className='bk warn';b.innerHTML=last?'<b>⚠ Last backup was '+days+' days ago.</b><br>Tap here to back up now.':'<b>⚠ No backup taken yet.</b><br>Tap here to back up now.'}
 }
 function billReminders(){
-  return db.invoices.filter(i=>i.status!=='cancelled').map(i=>({i,d:daysSince(i.date),p:invPaid(i)})).filter(x=>x.p.out>1&&x.d>=rem.b1).sort((a,b)=>b.d-a.d);
+  return db.invoices.filter(i=>i.status!=='cancelled').map(i=>({i,d:daysSince(i.date),p:invPaid(i)}))  .filter(x=>x.p.out>1).sort((a,b)=>b.d-a.d);
 }
 function renderReminders(){
   const box=$('#rem-box');if(!box)return;
   const al=trips.filter(t=>isWaiting(t)&&daysSince(t.waitSince)>=limitFor(t)).sort((a,b)=>daysSince(b.waitSince)-daysSince(a.waitSince));
   const bl=billReminders();
   let h=al.map(t=>{const d=daysSince(t.waitSince);return '<button type="button" class="remrow" data-rem="'+t.id+'"><b>'+esc(t.vehicle)+'</b> — '+(hasSt(t,'Waiting')?'waiting for loading':'waiting for unloading')+' since <b>'+d+' day'+(d===1?'':'s')+'</b><br>'+esc(t.from)+' → '+esc(t.to)+' · '+esc(cliName(t))+'</button>'}).join('')+
-   bl.map(x=>'<button type="button" class="remrow" data-ri="'+x.i.id+'" style="'+(x.d>=rem.b2?'':'border-color:#e0a000;background:#fff6dd;color:#6b4a00')+'">🧾 <b>'+esc(x.i.no)+'</b> — '+esc(x.i.client.name)+'<br>Bill done <b>'+x.d+' days ago</b>'+(x.d>=rem.b2?' ('+rem.b2+'+ days)':' ('+rem.b1+'+ days)')+' · payment pending</button>').join('');
+   bl.map(x=>'<button type="button" class="remrow" data-ri="'+x.i.id+'" style="'+(x.d>=rem.b2?'':x.d>=rem.b1?'border-color:#e0a000;background:#fff6dd;color:#6b4a00':'border-color:#cfd8d3;background:#fff;color:#333')+'">🧾 <b>'+esc(x.i.no)+'</b> — '+esc(x.i.client.name)+'<br>Bill done <b>'+(x.d===0?'today':x.d+' day'+(x.d===1?'':'s')+' ago')+'</b>'+(x.d>=rem.b2?' ('+rem.b2+'+ days ⚠)':x.d>=rem.b1?' ('+rem.b1+'+ days)':'')+' · payment pending</button>').join('');
   box.innerHTML=h?'<h2 style="margin-top:0">⏰ Reminders ('+(al.length+bl.length)+')</h2>'+h:'';
 }
 $('#rem-box').addEventListener('click',e=>{const b=e.target.closest('[data-ri]');if(b){bTab='hist';show('bill')}});
