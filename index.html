@@ -479,7 +479,13 @@ function init(){
 /* ---------- calculations ---------- */
 const sumA=a=>(a||[]).reduce((s,x)=>s+num(x.amt),0);
 function syncPay(t){
-  t.recvAmt=r2(sumA(t.recvs));t.paidAmt=r2(sumA(t.paids));t.tdsAmt=r2(sumA(t.tdsList));
+  t.recvAmt=r2(sumA(t.recvs));t.paidAmt=r2(sumA(t.paids));
+  if(t.tdsOn||(t.tdsList||[]).some(p=>p.auto)){
+    t.tdsList=(t.tdsList||[]).filter(p=>!p.auto);t.tdsAmt=r2(sumA(t.tdsList));
+    if(t.tdsOn&&t.recvAmt>0){const c0=calc(t);
+      if(c0.partyDue===0&&c0.tdsExp>t.tdsAmt+0.004){const lr0=[...(t.recvs||[])].sort((x,y)=>(x.date||'').localeCompare(y.date||'')).pop();t.tdsList.push({id:uid(),date:(lr0&&lr0.date)||t.date||'',amt:r2(c0.tdsExp-t.tdsAmt),ref:'auto',bank:false,auto:true})}}
+  }
+  t.tdsAmt=r2(sumA(t.tdsList));
   const last=a=>a.length?[...a].sort((x,y)=>(x.date||'').localeCompare(y.date||''))[a.length-1]:null;
   const lr=last(t.recvs||[]),lp=last(t.paids||[]);
   t.recvRef=lr?lr.ref||'':'';t.paidRef=lp?lp.ref||'':'';
@@ -497,10 +503,10 @@ const grossOf=(fr,mode)=>r2(fr+fr*taxRate(mode));   // what the client owes: fre
 function calc(t){
   const fr=num(t.freight),cm=num(t.comm),rc=num(t.recvAmt),pd=num(t.paidAmt);
   const transTotal=fr-cm,gross=(t.billGross!=null&&t.invoiceId)?num(t.billGross):grossOf(fr,t.taxMode);
-  const td=num(t.tdsAmt),pdue=r2(gross-rc-td);
+  const tdsRec=num(t.tdsAmt),tdsExp=t.tdsOn?r2(fr*(num(t.tdsRate)||1)/100):0,td=Math.max(tdsRec,tdsExp),pdue=r2(gross-rc-td);   // TDS marked on the trip is deducted from the receivable automatically
   const trate=num(t.tRate)||(t.tBill==='RCM'?5:t.tBill==='GST'?18:0);
   const tg=t.tBill==='GST'?r2(transTotal*trate/100):0,rcm=(t.tBill==='RCM'&&t.taxMode!=='RCM')?r2(transTotal*trate/100):0,tgross=transTotal+tg;   // (client RCM: client pays the tax, so I pay none) transporter GST bill: I owe him base + GST; RCM: I pay the tax to the government myself
-  return{fr,cm,rc,td,pd,transTotal,gross,tax:r2(gross-fr),profit:rc-pd,
+  return{fr,cm,rc,td,tdsExp,tdsRec,pd,transTotal,gross,tax:r2(gross-fr),profit:rc-pd,
     partyDue:pdue>1?pdue:0,                     // up to Re 1 of bill round-off is treated as settled
     transGst:tg,rcmTax:rcm,transGross:tgross,
     transDue:Math.max(0,r2(tgross-pd))};
@@ -1063,12 +1069,12 @@ const setSeg=(id,val)=>$$('#'+id+' button').forEach(b=>b.classList.toggle('on',b
 const NEWOPT='__new';
 function formTotals(){const q=num($('#t-qty').value);const fr=r2(q*num($('#t-fr').value));const pt=editId?trips.find(x=>x.id===editId):null;return{q,fr,gross:(pt&&pt.invoiceId&&pt.billGross!=null)?num(pt.billGross):grossOf(fr,fTax),cm:r2(q*num($('#t-cm').value))}}
 function recalcForm(){
-  const T=formTotals(),rc=r2(sumA(fR)),td=r2(sumA(fT)),pd=r2(sumA(fP));
+  const T=formTotals(),rc=r2(sumA(fR)),tdA=r2(sumA(fT)),tdE=tdsExp(T.fr),td=Math.max(tdA,tdE),pd=r2(sumA(fP));
   const tbase=T.fr-T.cm,tg=tbGstAmt(tbase),tr=tbase+tg;
   $('#t-calc').innerHTML=`📦 Total Freight (Qty × Rate): <b>${inr(T.fr)}</b><br>
    💼 My Total Commission: <b>${inr(T.cm)}</b><br>
    🚚 Total payable to transporter: <b>${inr(tr)}</b>${tg?' (incl. GST '+inr(tg)+')':''}<br>
-   ${T.gross!==T.fr?'🧾 GST on freight: <b>'+inr(T.gross-T.fr)+'</b> · Client owes: <b>'+inr(T.gross)+'</b><br>':''}💰 Received: <b>${inr(rc)}</b>${td?' · ✂ TDS: <b>'+inr(td)+'</b>':''}${tdsRateF()?' <small>(expected TDS '+tdsRateF()+'%: '+inr(tdsExp(T.fr))+')</small>':''} · Balance receivable: <b style="color:${T.gross-rc-td>1?'var(--red)':'var(--g2)'}">${inr(Math.max(0,T.gross-rc-td))}</b><br>
+   ${T.gross!==T.fr?'🧾 GST on freight: <b>'+inr(T.gross-T.fr)+'</b> · Client owes: <b>'+inr(T.gross)+'</b><br>':''}💰 Received: <b>${inr(rc)}</b>${td?' · ✂ TDS: <b>'+inr(td)+'</b>'+(tdsRateF()?' <small>('+tdsRateF()+'% auto)</small>':''):''} · Net receivable: <b style="color:${T.gross-rc-td>1?'var(--red)':'var(--g2)'}">${inr(Math.max(0,T.gross-rc-td))}</b><br>
    🚚 Paid: <b>${inr(pd)}</b> · Balance payable: <b style="color:${tr-pd>0?'var(--red)':'var(--g2)'}">${inr(Math.max(0,tr-pd))}</b><br>
    📈 Profit (Received − Paid): <b style="color:${rc-pd<0?'var(--red)':'var(--g2)'}">${inr(rc-pd)}</b>`;
 }
@@ -1092,7 +1098,7 @@ function payEvt(e){
   if(e.type==='input'||e.type==='change')recalcForm();
 }
 ['#pay-r','#pay-t','#pay-p'].forEach(s=>['input','change','click'].forEach(ev=>$(s).addEventListener(ev,payEvt)));
-$('#add-r').onclick=()=>{const T=formTotals();const left=r2(T.gross-sumA(fR)-sumA(fT));fR.push({id:uid(),date:todayStr(),amt:left>0?left:'',ref:'',bank:todayStr()>=db.settings.ledgerStart});renderPays()};
+$('#add-r').onclick=()=>{const T=formTotals();const left=r2(T.gross-sumA(fR)-Math.max(sumA(fT),tdsExp(T.fr)));fR.push({id:uid(),date:todayStr(),amt:left>0?left:'',ref:'',bank:todayStr()>=db.settings.ledgerStart});renderPays()};
 $('#add-t').onclick=()=>{const T=formTotals();const left=Math.max(0,r2(tdsExp(T.fr)-sumA(fT)));fT.push({id:uid(),date:todayStr(),amt:left>0?left:'',ref:'',bank:false});renderPays()};
 $('#t-tds').addEventListener('change',()=>{$('#tds-wrap').style.display=$('#t-tds').checked?'':'none';recalcForm()});
 $('#t-tdsr').addEventListener('input',recalcForm);
@@ -1179,7 +1185,7 @@ function openForm(id,pre){
     $('#t-qty').value=q;$('#t-fr').value=fr;$('#t-cm').value=cm;
   }
   setStageOptions(!t,t?t.stage:'Planned');
-  fR=t?t.recvs.map(p=>Object.assign({},p)):[];fP=t?t.paids.map(p=>Object.assign({},p)):[];fT=t?(t.tdsList||[]).map(p=>Object.assign({},p)):[];
+  fR=t?t.recvs.map(p=>Object.assign({},p)):[];fP=t?t.paids.map(p=>Object.assign({},p)):[];fT=t?(t.tdsList||[]).filter(p=>!p.auto).map(p=>Object.assign({},p)):[];
   $('#t-tds').checked=!!(t&&t.tdsOn);$('#t-tdsr').value=t&&t.tdsRate?t.tdsRate:1;$('#tds-wrap').style.display=$('#t-tds').checked?'':'none';
   renderPays();
   setSts(t?sts(t):[]);
@@ -1481,7 +1487,7 @@ function payModal(kind,fixed){
     const upd=()=>{
       if(isR){const I=m.querySelector('#pm-i'),cur=I.value;const inv=[...new Set(openT.filter(t=>t.clientId===P.value||cliName(t)===P.value).map(t=>t.invoiceNo).filter(Boolean))];I.innerHTML='<option value="">All trips of this client</option>'+inv.map(x=>'<option>'+esc(x)+'</option>').join('');I.value=inv.includes(cur)?cur:(fixed&&fixed.invoice&&inv.includes(fixed.invoice)?fixed.invoice:'')}
       const d=r2(sel().reduce((s,t)=>s+(isR?calc(t).partyDue:calc(t).transDue),0));m.querySelector('#pm-due').innerHTML='Outstanding: <b>'+inr2(d)+'</b> on '+sel().length+' trip(s)';
-      if(isR){const ex=r2(sel().filter(t=>t.tdsOn).reduce((s,t)=>s+Math.max(0,num(t.freight)*(num(t.tdsRate)||1)/100-num(t.tdsAmt)),0));m.querySelector('#pm-tn').textContent=ex>0?'Auto: '+ex.toFixed(2)+' (TDS % × freight of trips marked for TDS). You can edit it.':'';m.querySelector('#pm-t').value=ex>0?ex.toFixed(2):''}
+      if(isR){const ex=r2(sel().filter(t=>t.tdsOn).reduce((s,t)=>s+calc(t).tdsExp,0));m.querySelector('#pm-tn').textContent=ex>0?'Outstanding above is already NET of TDS ('+inr2(ex)+' auto-deducted on trips marked for TDS) — just enter what reached your bank. TDS is recorded automatically. Use this field only for TDS on other trips.':''}
     };
     P.onchange=upd;if(isR)m.querySelector('#pm-i').onchange=upd;upd();
     m.querySelector('#pm-no').onclick=closeModal;
