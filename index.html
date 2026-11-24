@@ -1850,13 +1850,24 @@ function renderAna(){
    '<div class="kv"><span>Payments received (bank ledger)</span><b class="grn">'+inr(lsum('recv'))+'</b></div><div class="kv"><span>Payments made (bank ledger)</span><b>'+inr(lsum('paid'))+'</b></div>'+
    '<div class="kv"><span>Outstanding from clients (these trips)</span><b class="red">'+inr(P.reduce((s,t)=>s+calc(t).partyDue,0))+'</b></div><div class="kv"><span>Outstanding to transporters (these trips)</span><b class="red">'+inr(P.reduce((s,t)=>s+calc(t).transDue,0))+'</b></div></div>';
   const tbl=(title,head,rowsH)=>'<div class="mc"><h3>'+title+'</h3><div class="scroll"><table class="t"><tr>'+head.map((x,i)=>'<th'+(i?' class="r"':'')+'>'+x+'</th>').join('')+'</tr>'+(rowsH||'<tr><td colspan="'+head.length+'">No data</td></tr>')+'</table></div></div>';
-  {const E=tdsEntries(),V=window.nTdsView||'fy';
-   const mon=d=>d?monLabel(d.slice(0,7)):'';
-   const grp={fy:[e=>e.fy,e=>e.client,k=>'FY '+k,'FY','Client'],mon:[e=>e.date.slice(0,7),e=>e.client,k=>monLabel(k),'Month','Client'],cli:[e=>e.client,e=>e.fy,k=>k,'Client','FY']}[V];
-   const m=tdsGroup(E,grp[0],grp[1]),keys=Object.keys(m).sort(V==='cli'?undefined:(a,b)=>b.localeCompare(a));
-   let tb='';keys.forEach(A=>{const tot=r2(Object.values(m[A]).reduce((s,x)=>s+x.a,0));tb+='<tr><td colspan="2"><b>'+esc(grp[2](A))+'</b></td><td class="r"><b>'+inr2(tot)+'</b></td></tr>'+Object.keys(m[A]).sort((x,y)=>m[A][y].a-m[A][x].a).map(B=>'<tr><td style="padding-left:16px">'+esc(V==='cli'?'FY '+B:B)+'</td><td class="r">'+m[A][B].n+'</td><td class="r">'+inr2(m[A][B].a)+'</td></tr>').join('')});
+  {const AE=tdsEntries(),V=window.nTdsView||'fy',fys=[...new Set(AE.map(e=>e.fy))].sort().reverse();
+   let FY=window.nTdsFY||'';if(FY&&!fys.includes(FY))FY='';
+   const E=(V==='fy'||!FY)?AE:AE.filter(e=>e.fy===FY);
+   const sum=a=>r2(a.reduce((s,e)=>s+e.amt,0));
+   let body='';
+   if(V==='fy'){   // one line per financial year
+     body='<tr><th>Financial Year</th><th class="r">Clients</th><th class="r">Entries</th><th class="r">TDS</th></tr>'+fys.map(f=>{const x=AE.filter(e=>e.fy===f);return '<tr><td><b>FY '+f+'</b></td><td class="r">'+new Set(x.map(e=>e.client)).size+'</td><td class="r">'+x.length+'</td><td class="r"><b>'+inr2(sum(x))+'</b></td></tr>'}).join('');
+   }else if(V==='mon'){   // one line per month
+     const ms=[...new Set(E.map(e=>e.date.slice(0,7)))].sort().reverse();
+     body='<tr><th>Month</th><th class="r">Entries</th><th class="r">TDS</th></tr>'+ms.map(m=>{const x=E.filter(e=>e.date.startsWith(m));return '<tr><td><b>'+monLabel(m)+'</b></td><td class="r">'+x.length+'</td><td class="r"><b>'+inr2(sum(x))+'</b></td></tr>'}).join('');
+   }else{   // clients ranked by TDS; with per-FY lines when all years are shown
+     const cs=[...new Set(E.map(e=>e.client))].map(c=>({c,x:E.filter(e=>e.client===c)})).sort((a,b)=>sum(b.x)-sum(a.x));
+     body='<tr><th>Client</th><th class="r">Entries</th><th class="r">TDS</th></tr>'+cs.map(o=>'<tr><td><b>'+esc(o.c)+'</b></td><td class="r">'+o.x.length+'</td><td class="r"><b>'+inr2(sum(o.x))+'</b></td></tr>'+(FY||fys.length<2?'':[...new Set(o.x.map(e=>e.fy))].sort().reverse().map(f=>{const y=o.x.filter(e=>e.fy===f);return '<tr><td style="padding-left:16px"><small>FY '+f+'</small></td><td class="r"><small>'+y.length+'</small></td><td class="r"><small>'+inr2(sum(y))+'</small></td></tr>'}).join(''))).join('');
+   }
+   const ncol=V==='fy'?4:3;
    h+='<div class="mc"><h3>✂ TDS Deducted</h3><div class="seg" id="n-tdsv" style="margin-bottom:10px"><button type="button" data-v="fy"'+(V==='fy'?' class="on"':'')+'>FY wise</button><button type="button" data-v="mon"'+(V==='mon'?' class="on"':'')+'>Month wise</button><button type="button" data-v="cli"'+(V==='cli'?' class="on"':'')+'>Client wise</button></div>'+
-    (E.length?'<div class="scroll"><table class="t"><tr><th colspan="1">'+(V==='fy'?'Financial Year':V==='mon'?'Month':'Client')+' / '+grp[4]+'</th><th class="r">Entries</th><th class="r">TDS</th></tr>'+tb+'<tr><td colspan="2"><b>Total</b></td><td class="r"><b>'+inr2(r2(E.reduce((s,e)=>s+e.amt,0)))+'</b></td></tr></table></div><div class="note">Financial year is April–March, by the date the TDS was recorded. Shows all periods regardless of the filter above. Excel: Masters → Settings → Export (TDS sheets are added automatically).</div>':'<div class="note">No TDS recorded yet.</div>')+'</div>'}
+    (AE.length?(V==='fy'?'':'<select id="n-tdsfy" style="margin-bottom:10px"><option value="">All financial years</option>'+fys.map(f=>'<option value="'+f+'"'+(f===FY?' selected':'')+'>FY '+f+'</option>').join('')+'</select>')+
+     '<div class="scroll"><table class="t">'+body+'<tr><td colspan="'+(ncol-1)+'"><b>Total'+(V!=='fy'&&FY?' (FY '+FY+')':'')+'</b></td><td class="r"><b>'+inr2(sum(E))+'</b></td></tr></table></div><div class="note">'+(V==='fy'?'One line per financial year (April–March).':V==='mon'?'Month totals, by the date TDS was recorded.':'Clients ranked by TDS deducted. Pick a financial year to see one year only.')+' Shows all periods regardless of the filter above. Excel: Masters → Settings → Export adds TDS sheets automatically.</div>':'<div class="note">No TDS recorded yet.</div>')+'</div>'}
   // client / vehicle
   h+=tbl('🏢 Client-wise trips',['Client','Trips','Commission'],groupBy(P,t=>t.clientId||cliName(t),cliName).sort((a,b)=>b.trips-a.trips).map(g=>'<tr><td>'+esc(g.n)+'</td><td class="r">'+g.trips+'</td><td class="r">'+inr(g.comm)+'</td></tr>').join(''));
   h+=tbl('🚛 Vehicle-wise trips',['Vehicle','Trips','Commission'],groupBy(P,t=>t.vehicle,t=>t.vehicle).sort((a,b)=>b.trips-a.trips).map(g=>'<tr><td>'+esc(g.n)+'</td><td class="r">'+g.trips+'</td><td class="r">'+inr(g.comm)+'</td></tr>').join(''));
@@ -1883,7 +1894,7 @@ function renderAna(){
    '<tr><td>Direct</td><td class="r">'+diT.length+'</td><td class="r">'+pct(diT.length,cls)+'</td><td class="r">'+inr(commDI)+'</td><td class="r">'+pct(commDI,commBA+commDI)+'</td></tr>'+
    '<tr><td><b>Total classified</b></td><td class="r"><b>'+cls+'</b></td><td class="r"><b>'+(cls?'100%':'0%')+'</b></td><td class="r"><b>'+inr(commBA+commDI)+'</b></td><td class="r"><b>'+((commBA+commDI)?'100%':'0%')+'</b></td></tr></table></div>'+
    (unT.length?'<div class="note">'+unT.length+' older trip(s) have no B.A / Direct set. Open them in Trips → Edit to classify; they are not counted above.</div>':'')+'</div>';
-  $('#n-body').innerHTML=h;$$('#n-tdsv button').forEach(b=>b.onclick=()=>{window.nTdsView=b.dataset.v;renderAna()})
+  $('#n-body').innerHTML=h;$$('#n-tdsv button').forEach(b=>b.onclick=()=>{window.nTdsView=b.dataset.v;renderAna()});{const f=$('#n-tdsfy');if(f)f.onchange=()=>{window.nTdsFY=f.value;renderAna()}}
 }
 
 /* ---------- PWA: service worker, install ---------- */
