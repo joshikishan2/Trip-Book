@@ -889,7 +889,7 @@ function mSet(){
    '<label>Prefix</label><input id="sr-p" value="'+esc(s.prefix)+'"><label>Last used number in FY '+fy+'</label><input id="sr-l" type="number" inputmode="numeric" min="0" value="'+(s.counters[fy]||0)+'">'+
    '<div class="note">Next invoice will be <b>'+esc(nextNo(todayStr()))+'</b></div><button class="big addbtn" id="sr-save" type="button">💾 Save Series</button></div>'+
   '<div class="mc"><h3>📤 Export (Excel / CSV)</h3><div class="row2"><div><label style="margin-top:0">From</label><input id="x-from" type="date"></div><div><label style="margin-top:0">To</label><input id="x-to" type="date"></div></div>'+
-   '<button class="big" id="x-xls">📊 Excel (.xlsx) — Save / Send</button><button class="big alt" id="x-csv">📄 CSV (for Google Sheets) — Save / Send</button><button class="big alt" id="x-share">⬇ Direct download Excel (if above doesn\'t work)</button><p class="note">Tap Excel or CSV and your phone\'s Share menu opens — choose "Drive" or "Files" to save it, or "WhatsApp"/"Gmail" to send it.</p></div>'+
+   '<button class="big" id="x-xls">📊 Excel (.xlsx) — Save / Send</button><button class="big alt" id="x-tds">✂ TDS — FY &amp; Client wise (Excel)</button><button class="big alt" id="x-csv">📄 CSV (for Google Sheets) — Save / Send</button><button class="big alt" id="x-share">⬇ Direct download Excel (if above doesn\'t work)</button><p class="note">Tap Excel or CSV and your phone\'s Share menu opens — choose "Drive" or "Files" to save it, or "WhatsApp"/"Gmail" to send it.</p></div>'+
   '<div class="mc"><h3>💾 Backup / Restore</h3><button class="big alt" id="b-save" style="margin-top:0">⬇ Save Backup (JSON)</button><button class="big alt" id="b-load">⬆ Restore Backup</button><input type="file" id="b-file" accept=".json,application/json" style="display:none"><button class="big alt" id="b-pre">⬇ Save pre-upgrade safety copy</button>'+
    '<p class="note">⚠ Data is stored only in this phone\'s browser. Take a backup weekly and save it on WhatsApp/Drive. Backup includes trips, clients, drivers, B.A, bank ledger, invoices and master lists.</p><p class="note" id="stor"></p></div>';
   const d=new Date();$('#x-from').value=d.getFullYear()+'-'+pad(d.getMonth()+1)+'-01';$('#x-to').value=todayStr();
@@ -908,6 +908,7 @@ function mSet(){
     db.settings.series.prefix=p;db.settings.series.counters[fy]=n;saveDB();toast('✅ Series saved');renderMaster();
   };
   $('#x-xls').onclick=()=>{const l=rangeTrips();if(!l.length)return toast('No data');saveFile(makeXLSX(l),'TripBook_'+stamp()+'.xlsx',XMIME)};
+  $('#x-tds').onclick=tdsExport;
   $('#x-csv').onclick=()=>{const l=rangeTrips();if(!l.length)return toast('No data');saveFile(makeCSV(l),'TripBook_'+stamp()+'.csv','text/csv')};
   $('#x-share').onclick=()=>{const l=rangeTrips();if(!l.length)return toast('No data');download(makeXLSX(l),'TripBook_'+stamp()+'.xlsx')};
   $('#b-save').onclick=async()=>{if(await saveFile(new Blob([JSON.stringify({app:'tripbook',v:3,trips,master,db},null,1)],{type:'application/json'}),'TripBook_backup_'+stamp()+'.json','application/json'))setBk()};
@@ -1005,6 +1006,43 @@ function makeXLSX(list){
   ];
   return makeZip(files);
 }
+
+/* ---------- TDS: financial-year & client wise ---------- */
+function tdsEntries(){
+  const o=[];trips.forEach(t=>(t.tdsList||[]).forEach(p=>{const a=num(p.amt);if(a>0)o.push({fy:fyOf(p.date||t.date||todayStr()),date:p.date||t.date||'',client:cliName(t)||'(no client)',veh:t.vehicle||'',route:(t.from||'')+' → '+(t.to||''),inv:t.invoiceNo||'',ref:p.ref||'',amt:a})}));
+  return o.sort((a,b)=>b.fy.localeCompare(a.fy)||a.client.localeCompare(b.client)||(a.date||'').localeCompare(b.date||''));
+}
+function tdsSummary(){
+  const m={};tdsEntries().forEach(e=>{const F=m[e.fy]=m[e.fy]||{};const C=F[e.client]=F[e.client]||{n:0,a:0};C.n++;C.a=r2(C.a+e.amt)});
+  return Object.keys(m).sort().reverse().map(fy=>({fy,clients:Object.keys(m[fy]).sort((a,b)=>m[fy][b].a-m[fy][a].a).map(c=>({c,n:m[fy][c].n,a:m[fy][c].a})),total:r2(Object.values(m[fy]).reduce((s,x)=>s+x.a,0))}));
+}
+function makeBook(sheets){
+  const NS='xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"',XH='<?xml version="1.0" encoding="UTF-8" standalone="yes"?>';
+  const cell=(v,ci,ri,st)=>{const ref=colL(ci)+ri,sa=st?' s="'+st+'"':'';
+    if(typeof v==='number'&&isFinite(v))return '<c r="'+ref+'"'+sa+'><v>'+v+'</v></c>';
+    return '<c r="'+ref+'" t="inlineStr"'+sa+'><is><t>'+xesc(v)+'</t></is></c>'};
+  const files=[
+    {name:'[Content_Types].xml',data:XH+'<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/><Override PartName="/xl/workbook.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/>'+sheets.map((_,i)=>'<Override PartName="/xl/worksheets/sheet'+(i+1)+'.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/>').join('')+'<Override PartName="/xl/styles.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.styles+xml"/></Types>'},
+    {name:'_rels/.rels',data:XH+'<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="xl/workbook.xml"/></Relationships>'},
+    {name:'xl/workbook.xml',data:XH+'<workbook '+NS+' xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"><sheets>'+sheets.map((sh,i)=>'<sheet name="'+xesc(sh.name)+'" sheetId="'+(i+1)+'" r:id="rId'+(i+1)+'"/>').join('')+'</sheets></workbook>'},
+    {name:'xl/_rels/workbook.xml.rels',data:XH+'<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">'+sheets.map((_,i)=>'<Relationship Id="rId'+(i+1)+'" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet'+(i+1)+'.xml"/>').join('')+'<Relationship Id="rId'+(sheets.length+1)+'" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/styles" Target="styles.xml"/></Relationships>'},
+    {name:'xl/styles.xml',data:XH+'<styleSheet '+NS+'><fonts count="3"><font><sz val="11"/><name val="Calibri"/></font><font><b/><sz val="11"/><color rgb="FFFFFFFF"/><name val="Calibri"/></font><font><b/><sz val="11"/><name val="Calibri"/></font></fonts><fills count="3"><fill><patternFill patternType="none"/></fill><fill><patternFill patternType="gray125"/></fill><fill><patternFill patternType="solid"><fgColor rgb="FF0B5D3B"/><bgColor indexed="64"/></patternFill></fill></fills><borders count="1"><border><left/><right/><top/><bottom/><diagonal/></border></borders><cellStyleXfs count="1"><xf numFmtId="0" fontId="0" fillId="0" borderId="0"/></cellStyleXfs><cellXfs count="3"><xf numFmtId="0" fontId="0" fillId="0" borderId="0" xfId="0"/><xf numFmtId="0" fontId="1" fillId="2" borderId="0" xfId="0" applyFont="1" applyFill="1"/><xf numFmtId="0" fontId="2" fillId="0" borderId="0" xfId="0" applyFont="1"/></cellXfs><cellStyles count="1"><cellStyle name="Normal" xfId="0" builtinId="0"/></cellStyles></styleSheet>'}
+  ];
+  sheets.forEach((sh,i)=>{
+    let sd='<row r="1">'+sh.head.map((h,c)=>cell(h,c,1,1)).join('')+'</row>';
+    sh.rows.forEach((r,ri)=>{const bold=r._b?2:0;sd+='<row r="'+(ri+2)+'">'+r.map((v,c)=>cell(v,c,ri+2,bold)).join('')+'</row>'});
+    files.push({name:'xl/worksheets/sheet'+(i+1)+'.xml',data:XH+'<worksheet '+NS+'><sheetViews><sheetView workbookViewId="0"><pane ySplit="1" topLeftCell="A2" activePane="bottomLeft" state="frozen"/></sheetView></sheetViews><cols><col min="1" max="'+sh.head.length+'" width="'+(sh.w||20)+'" customWidth="1"/></cols><sheetData>'+sd+'</sheetData></worksheet>'});
+  });
+  return makeZip(files);
+}
+function makeTdsXLSX(){
+  const S=tdsSummary(),sum=[],det=[];
+  S.forEach(f=>{f.clients.forEach(c=>sum.push([f.fy,c.c,c.n,c.a]));const r=['FY '+f.fy+' TOTAL','',f.clients.reduce((s,c)=>s+c.n,0),f.total];r._b=1;sum.push(r)});
+  const gt=r2(S.reduce((s,f)=>s+f.total,0));const g=['GRAND TOTAL','',S.reduce((s,f)=>s+f.clients.reduce((q,c)=>q+c.n,0),0),gt];g._b=1;sum.push(g);
+  tdsEntries().forEach(e=>det.push([e.fy,fmtD(e.date),e.client,e.veh,e.route,e.inv,e.ref,e.amt]));
+  return makeBook([{name:'FY-Client Summary',head:['Financial Year','Client','No. of entries','TDS deducted (₹)'],rows:sum,w:24},{name:'TDS Details',head:['Financial Year','Date','Client','Vehicle','Route','Invoice No.','Ref / UTR','TDS (₹)'],rows:det,w:20}]);
+}
+function tdsExport(){if(!tdsEntries().length)return toast('No TDS recorded yet');saveFile(makeTdsXLSX(),'TripBook_TDS_FY_'+stamp()+'.xlsx',XMIME)}
 function makeCSV(list){
   const q=v=>'"'+String(v==null?'':v).replace(/"/g,'""')+'"';
   const s=[HEAD,...rows(list)].map(a=>a.map(q).join(',')).join('\r\n');
@@ -1823,6 +1861,8 @@ function renderAna(){
    '<div class="kv"><span>Payments received (bank ledger)</span><b class="grn">'+inr(lsum('recv'))+'</b></div><div class="kv"><span>Payments made (bank ledger)</span><b>'+inr(lsum('paid'))+'</b></div>'+
    '<div class="kv"><span>Outstanding from clients (these trips)</span><b class="red">'+inr(P.reduce((s,t)=>s+calc(t).partyDue,0))+'</b></div><div class="kv"><span>Outstanding to transporters (these trips)</span><b class="red">'+inr(P.reduce((s,t)=>s+calc(t).transDue,0))+'</b></div></div>';
   const tbl=(title,head,rowsH)=>'<div class="mc"><h3>'+title+'</h3><div class="scroll"><table class="t"><tr>'+head.map((x,i)=>'<th'+(i?' class="r"':'')+'>'+x+'</th>').join('')+'</tr>'+(rowsH||'<tr><td colspan="'+head.length+'">No data</td></tr>')+'</table></div></div>';
+  {const S=tdsSummary();
+   h+='<div class="mc"><h3>✂ TDS Deducted – FY &amp; Client wise</h3>'+(S.length?'<div class="scroll"><table class="t"><tr><th>FY</th><th>Client</th><th class="r">Entries</th><th class="r">TDS</th></tr>'+S.map(f=>f.clients.map((c,i)=>'<tr><td>'+(i?'':'<b>'+f.fy+'</b>')+'</td><td>'+esc(c.c)+'</td><td class="r">'+c.n+'</td><td class="r">'+inr2(c.a)+'</td></tr>').join('')+'<tr><td colspan="3"><b>FY '+f.fy+' total</b></td><td class="r"><b>'+inr2(f.total)+'</b></td></tr>').join('')+'</table></div><button class="big" id="n-tds" type="button" style="margin-top:10px">📊 Download TDS Excel</button><div class="note">Shows all financial years (April–March) regardless of the month filter above, by the date TDS was recorded.</div>':'<div class="note">No TDS recorded yet.</div>')+'</div>'}
   // client / vehicle
   h+=tbl('🏢 Client-wise trips',['Client','Trips','Commission'],groupBy(P,t=>t.clientId||cliName(t),cliName).sort((a,b)=>b.trips-a.trips).map(g=>'<tr><td>'+esc(g.n)+'</td><td class="r">'+g.trips+'</td><td class="r">'+inr(g.comm)+'</td></tr>').join(''));
   h+=tbl('🚛 Vehicle-wise trips',['Vehicle','Trips','Commission'],groupBy(P,t=>t.vehicle,t=>t.vehicle).sort((a,b)=>b.trips-a.trips).map(g=>'<tr><td>'+esc(g.n)+'</td><td class="r">'+g.trips+'</td><td class="r">'+inr(g.comm)+'</td></tr>').join(''));
@@ -1849,7 +1889,7 @@ function renderAna(){
    '<tr><td>Direct</td><td class="r">'+diT.length+'</td><td class="r">'+pct(diT.length,cls)+'</td><td class="r">'+inr(commDI)+'</td><td class="r">'+pct(commDI,commBA+commDI)+'</td></tr>'+
    '<tr><td><b>Total classified</b></td><td class="r"><b>'+cls+'</b></td><td class="r"><b>'+(cls?'100%':'0%')+'</b></td><td class="r"><b>'+inr(commBA+commDI)+'</b></td><td class="r"><b>'+((commBA+commDI)?'100%':'0%')+'</b></td></tr></table></div>'+
    (unT.length?'<div class="note">'+unT.length+' older trip(s) have no B.A / Direct set. Open them in Trips → Edit to classify; they are not counted above.</div>':'')+'</div>';
-  $('#n-body').innerHTML=h;
+  $('#n-body').innerHTML=h;{const b=$('#n-tds');if(b)b.onclick=tdsExport}
 }
 
 /* ---------- PWA: service worker, install ---------- */
@@ -1865,7 +1905,7 @@ function renderAna(){
 
 init();
 show('home');
-window.__tb={ask,closeModal,invPDF,viewInvoice,get trips(){return trips},get db(){return db},calc,idleList,generateInvoices,nextNo,invCalc,inWords,ledgerRows,accTotals,aRange,allocate,setStage,syncPay,migrateTrip,STAGES};
+window.__tb={makeTdsXLSX,tdsSummary,ask,closeModal,invPDF,viewInvoice,get trips(){return trips},get db(){return db},calc,idleList,generateInvoices,nextNo,invCalc,inWords,ledgerRows,accTotals,aRange,allocate,setStage,syncPay,migrateTrip,STAGES};
 })();
 </script>
 </body>
