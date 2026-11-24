@@ -172,6 +172,7 @@ table.t td.r,table.t th.r{text-align:right}
       <div><small>From date</small><input id="f-from" type="date"></div>
       <div><small>To date</small><input id="f-to" type="date"></div>
     </div>
+    <select id="f-cli"></select>
     <select id="f-stage"></select>
     <div class="row2"><select id="f-drv"></select><select id="f-src"><option value="">Source: All</option><option value="BA">B.A trips</option><option value="Direct">Direct trips</option></select></div>
     <select id="f-st"><option value="">All transporter payment status</option><option value="Bill Done">Bill to Transporter Done</option><option value="Transporter Pending">Payment to Transporter Pending</option><option value="Transporter Paid">Payment to Transporter Done</option></select>
@@ -746,8 +747,9 @@ $('#m-prev').onclick=()=>shiftMon('#f-month',-1,renderList);
 $('#m-next').onclick=()=>shiftMon('#f-month',1,renderList);
 $('#m-all').onclick=()=>{$('#f-month').value='';renderList()};
 function filtered(){
-  const mo=$('#f-month').value,q=$('#f-q').value.trim().toLowerCase(),fr=$('#f-from').value,to=$('#f-to').value,st=$('#f-st').value,pe=$('#f-pend').checked,sg=$('#f-stage').value,dr=$('#f-drv').value,sr=$('#f-src').value,bl=$('#f-bill').value;
+  const mo=$('#f-month').value,q=$('#f-q').value.trim().toLowerCase(),fr=$('#f-from').value,to=$('#f-to').value,st=$('#f-st').value,pe=$('#f-pend').checked,sg=$('#f-stage').value,dr=$('#f-drv').value,sr=$('#f-src').value,bl=$('#f-bill').value,cl=$('#f-cli').value;
   return trips.filter(t=>{
+    if(cl&&cliName(t)!==cl)return false;
     if(mo&&!(t.date||'').startsWith(mo))return false;
     if(q&&!(`${t.vehicle} ${cliName(t)} ${drvName(t)} ${t.tname} ${t.omc||''} ${baName(t)} ${t.lr||''} ${t.invoiceNo||''}`.toLowerCase().includes(q)))return false;
     if(fr&&t.date<fr)return false;if(to&&t.date>to)return false;
@@ -761,7 +763,8 @@ function filtered(){
   }).sort((a,b)=>(b.date||'').localeCompare(a.date||'')||b.created-a.created);
 }
 function renderList(){
-  const sg=$('#f-stage').value,dr=$('#f-drv').value;
+  const sg=$('#f-stage').value,dr=$('#f-drv').value,cv=$('#f-cli').value;
+  {const names=[...new Set(trips.map(cliName).filter(Boolean))].sort((a,b)=>a.localeCompare(b));fillSel('#f-cli',names.map(n=>({v:n,l:n})),cv?{v:cv,l:cv}:null,'All clients / customers')}
   fillSel('#f-stage',STAGES.map(s=>({v:s,l:s})),sg?{v:sg,l:sg}:null,'All Trip Stages');
   fillSel('#f-drv',db.drivers.slice().sort(byName).map(d=>({v:d.id,l:d.name})),dr?{v:dr,l:'—'}:null,'All drivers');
   const l=filtered(),mo=$('#f-month').value;
@@ -770,8 +773,8 @@ function renderList(){
   $('#cnt').innerHTML='<b>'+esc(label)+'</b> · <b>'+l.length+' trips</b><br>Freight '+inr(fr)+' · Commission '+inr(cm)+' · Profit '+inr(pf);
   $('#cards').innerHTML=l.length?l.map(card).join(''):'<div class="empty">No trips found</div>';
 }
-['#f-month','#f-q','#f-from','#f-to','#f-st','#f-pend','#f-stage','#f-drv','#f-src','#f-bill'].forEach(s=>{$(s).addEventListener('input',renderList);$(s).addEventListener('change',renderList)});
-$('#f-clr').onclick=()=>{$('#f-month').value=todayStr().slice(0,7);['#f-q','#f-from','#f-to','#f-st','#f-stage','#f-drv','#f-src','#f-bill'].forEach(s=>$(s).value='');$('#f-pend').checked=false;renderList()};
+['#f-month','#f-q','#f-from','#f-to','#f-st','#f-pend','#f-stage','#f-cli','#f-drv','#f-src','#f-bill'].forEach(s=>{$(s).addEventListener('input',renderList);$(s).addEventListener('change',renderList)});
+$('#f-clr').onclick=()=>{$('#f-month').value=todayStr().slice(0,7);['#f-q','#f-from','#f-to','#f-st','#f-stage','#f-cli','#f-drv','#f-src','#f-bill'].forEach(s=>$(s).value='');$('#f-pend').checked=false;renderList()};
 
 /* ---------- Masters ---------- */
 let mTab='drv';
