@@ -167,11 +167,12 @@ table.t td.r,table.t th.r{text-align:right}
   <div class="filters">
     <div class="mbar"><button id="m-prev" type="button">◀</button><input id="f-month" type="month"><button id="m-next" type="button">▶</button></div>
     <button class="big alt" style="height:40px;margin:0 0 8px;font-size:14px" id="m-all" type="button">Show all months</button>
-    <input id="f-q" type="search" placeholder="🔍 Vehicle / Client / Driver / Transporter / OMC / LR / Invoice">
+    <input id="f-q" type="search" list="f-q-dl" autocomplete="off" placeholder="🔍 Vehicle / Client / Driver / Transporter / OMC / LR / Invoice">
     <div class="row2">
       <div><small>From date</small><input id="f-from" type="date"></div>
       <div><small>To date</small><input id="f-to" type="date"></div>
     </div>
+    <datalist id="f-q-dl"></datalist>
     <select id="f-cli"></select>
     <select id="f-stage"></select>
     <div class="row2"><select id="f-drv"></select><select id="f-src"><option value="">Source: All</option><option value="BA">B.A trips</option><option value="Direct">Direct trips</option></select></div>
@@ -767,6 +768,7 @@ function renderList(){
   {const names=[...new Set(trips.map(cliName).filter(Boolean))].sort((a,b)=>a.localeCompare(b));fillSel('#f-cli',names.map(n=>({v:n,l:n})),cv?{v:cv,l:cv}:null,'All clients / customers')}
   fillSel('#f-stage',STAGES.map(s=>({v:s,l:s})),sg?{v:sg,l:sg}:null,'All Trip Stages');
   fillSel('#f-drv',db.drivers.slice().sort(byName).map(d=>({v:d.id,l:d.name})),dr?{v:dr,l:'—'}:null,'All drivers');
+  {const set=new Set();trips.forEach(t=>[t.vehicle,cliName(t),drvName(t),t.tname,t.omc,baName(t),t.lr,t.invoiceNo].forEach(v=>{if(v&&String(v).trim())set.add(String(v).trim())}));$('#f-q-dl').innerHTML=[...set].sort((a,b)=>a.localeCompare(b)).map(v=>'<option value="'+esc(v)+'">').join('')}
   const l=filtered(),mo=$('#f-month').value;
   const label=mo?monLabel(mo):'All months';
   const fr=l.reduce((s,t)=>s+num(t.freight),0),cm=l.reduce((s,t)=>s+num(t.comm),0),pf=l.reduce((s,t)=>s+calc(t).profit,0);
