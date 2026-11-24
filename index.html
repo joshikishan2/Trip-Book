@@ -219,11 +219,12 @@ table.t td.r,table.t th.r{text-align:right}
 
   <label>Trip Stage *</label>
   <select id="t-stage"></select>
-  <div id="uc-wrap" style="display:none"><label>Unloading completed at</label><input id="t-uct" type="datetime-local"></div>
 
   <label>💰 Received from Client <i>(part payments allowed — each editable)</i></label>
   <div id="pay-r"></div>
   <button class="btn2 g" type="button" id="add-r" style="margin-top:8px;width:100%">＋ Add received payment</button>
+  <label class="tog" style="margin-top:14px"><input type="checkbox" id="t-tds"> ✂ Client deducts TDS on this trip</label>
+  <div id="tds-wrap" style="display:none"><label>TDS rate % <i>(auto-calculated on freight, GST excluded)</i></label><input id="t-tdsr" type="number" inputmode="decimal" value="1"></div>
   <label>✂ TDS deducted by client <i>(short amount — not received in bank)</i></label>
   <div id="pay-t"></div>
   <button class="btn2" type="button" id="add-t" style="margin-top:8px;width:100%">＋ Add TDS deducted</button>
@@ -417,6 +418,7 @@ function migrateTrip(t){
   if(!Array.isArray(t.recvs)){t.recvs=num(t.recvAmt)>0?[{id:uid(),date:t.date||'',amt:num(t.recvAmt),ref:t.recvRef||'',bank:false}]:[]}
   if(!Array.isArray(t.paids)){t.paids=num(t.paidAmt)>0?[{id:uid(),date:t.paidOn||t.date||'',amt:num(t.paidAmt),ref:t.paidRef||'',bank:false}]:[]}
   if(!Array.isArray(t.tdsList))t.tdsList=[];
+  if(t.tdsOn===undefined){t.tdsOn=false;t.tdsRate=1}
   t.tdsAmt=Math.round(t.tdsList.reduce((s,x)=>s+(+x.amt||0),0)*100)/100;
   if(t.tripSource===undefined)t.tripSource=t.ba?'BA':'';
   if(t.taxMode===undefined)t.taxMode='';
@@ -1026,6 +1028,8 @@ function stamp(){return todayStr()}
 
 /* ---------- trip form ---------- */
 let editId=null,fSrc='',fTax='',fTb='',fR=[],fP=[],fT=[];
+const tdsRateF=()=>$('#t-tds').checked?(num($('#t-tdsr').value)||1):0;
+const tdsExp=fr=>r2(fr*tdsRateF()/100);
 const tbRate=()=>num($('#t-tbr').value)||(fTb==='RCM'?5:fTb==='GST'?18:0);
 const tbGstAmt=base=>fTb==='GST'?r2(base*tbRate()/100):0;
 const setSeg=(id,val)=>$$('#'+id+' button').forEach(b=>b.classList.toggle('on',b.dataset.v===val));
@@ -1037,7 +1041,7 @@ function recalcForm(){
   $('#t-calc').innerHTML=`📦 Total Freight (Qty × Rate): <b>${inr(T.fr)}</b><br>
    💼 My Total Commission: <b>${inr(T.cm)}</b><br>
    🚚 Total payable to transporter: <b>${inr(tr)}</b>${tg?' (incl. GST '+inr(tg)+')':''}<br>
-   ${T.gross!==T.fr?'🧾 GST on freight: <b>'+inr(T.gross-T.fr)+'</b> · Client owes: <b>'+inr(T.gross)+'</b><br>':''}💰 Received: <b>${inr(rc)}</b>${td?' · ✂ TDS: <b>'+inr(td)+'</b>':''} · Balance receivable: <b style="color:${T.gross-rc-td>1?'var(--red)':'var(--g2)'}">${inr(Math.max(0,T.gross-rc-td))}</b><br>
+   ${T.gross!==T.fr?'🧾 GST on freight: <b>'+inr(T.gross-T.fr)+'</b> · Client owes: <b>'+inr(T.gross)+'</b><br>':''}💰 Received: <b>${inr(rc)}</b>${td?' · ✂ TDS: <b>'+inr(td)+'</b>':''}${tdsRateF()?' <small>(expected TDS '+tdsRateF()+'%: '+inr(tdsExp(T.fr))+')</small>':''} · Balance receivable: <b style="color:${T.gross-rc-td>1?'var(--red)':'var(--g2)'}">${inr(Math.max(0,T.gross-rc-td))}</b><br>
    🚚 Paid: <b>${inr(pd)}</b> · Balance payable: <b style="color:${tr-pd>0?'var(--red)':'var(--g2)'}">${inr(Math.max(0,tr-pd))}</b><br>
    📈 Profit (Received − Paid): <b style="color:${rc-pd<0?'var(--red)':'var(--g2)'}">${inr(rc-pd)}</b>`;
 }
@@ -1062,7 +1066,9 @@ function payEvt(e){
 }
 ['#pay-r','#pay-t','#pay-p'].forEach(s=>['input','change','click'].forEach(ev=>$(s).addEventListener(ev,payEvt)));
 $('#add-r').onclick=()=>{const T=formTotals();const left=r2(T.gross-sumA(fR)-sumA(fT));fR.push({id:uid(),date:todayStr(),amt:left>0?left:'',ref:'',bank:todayStr()>=db.settings.ledgerStart});renderPays()};
-$('#add-t').onclick=()=>{fT.push({id:uid(),date:todayStr(),amt:'',ref:'',bank:false});renderPays()};
+$('#add-t').onclick=()=>{const T=formTotals();const left=Math.max(0,r2(tdsExp(T.fr)-sumA(fT)));fT.push({id:uid(),date:todayStr(),amt:left>0?left:'',ref:'',bank:false});renderPays()};
+$('#t-tds').addEventListener('change',()=>{$('#tds-wrap').style.display=$('#t-tds').checked?'':'none';recalcForm()});
+$('#t-tdsr').addEventListener('input',recalcForm);
 $('#add-p').onclick=()=>{const T=formTotals();const left=r2(T.fr-T.cm+tbGstAmt(T.fr-T.cm)-sumA(fP));fP.push({id:uid(),date:todayStr(),amt:left>0?left:'',ref:'',bank:todayStr()>=db.settings.ledgerStart});renderPays()};
 ['t-qty','t-fr','t-cm'].forEach(i=>$('#'+i).addEventListener('input',recalcForm));
 
@@ -1095,8 +1101,6 @@ $('#t-st-box').addEventListener('change',e=>{
 });
 function stageFormSync(){
   const st=$('#t-stage').value,i=STAGES.indexOf(st);
-  $('#uc-wrap').style.display=i>=S_UC?'':'none';
-  if(i>=S_UC&&!$('#t-uct').value)$('#t-uct').value=toLocalDT();
 }
 $('#t-stage').addEventListener('change',stageFormSync);
 
@@ -1148,11 +1152,10 @@ function openForm(id,pre){
     $('#t-qty').value=q;$('#t-fr').value=fr;$('#t-cm').value=cm;
   }
   setStageOptions(!t,t?t.stage:'Planned');
-  $('#t-uct').value=t&&ucTime(t)?toLocalDT(ucTime(t)):'';
   fR=t?t.recvs.map(p=>Object.assign({},p)):[];fP=t?t.paids.map(p=>Object.assign({},p)):[];fT=t?(t.tdsList||[]).map(p=>Object.assign({},p)):[];
+  $('#t-tds').checked=!!(t&&t.tdsOn);$('#t-tdsr').value=t&&t.tdsRate?t.tdsRate:1;$('#tds-wrap').style.display=$('#t-tds').checked?'':'none';
   renderPays();
   setSts(t?sts(t):[]);
-  $('#uc-wrap').style.display=t&&stIdx(t)>=S_UC?'':'none';
   $('#t-rm').value=t?t.remarks:'';
   show('form');
 }
@@ -1195,6 +1198,7 @@ $('#t-save').onclick=()=>{
     freight:fr,comm:cm,clientId:cl?cl.id:'',party:cl?cl.name:'',tname:tv[0],tphone:tv[1]||'',
     tBill:fTb,tRate:(fTb==='GST'||fTb==='RCM')?tbRate():0,tripSource:fSrc,baId:fSrc==='BA'&&ba?ba.id:'',ba:fSrc==='BA'&&ba?ba.name:'',taxMode:fTax,
     driverId:dr?dr.id:'',driverName:dr?dr.name:'',
+    tdsOn:$('#t-tds').checked,tdsRate:num($('#t-tdsr').value)||1,
     recvs,tdsList,paids,statuses:newSts,status:newSts[0]||'',waitSince:prevT?prevT.waitSince||'':'',remarks:g('t-rm')
   };
   const snapT=JSON.stringify(trips);
@@ -1203,7 +1207,6 @@ $('#t-save').onclick=()=>{
   else{saved=Object.assign({id:uid(),created:Date.now(),stage:'',stageTimes:{},stageLog:[],invoiceNo:'',invoiceId:''},o);trips.push(saved)}
   const stg=g('t-stage');
   if(stg&&saved.stage!==stg)setStage(saved,stg,undefined,true);
-  if(STAGES.indexOf(saved.stage)>=S_UC){const u=$('#t-uct').value;if(u){const ms=new Date(u).getTime();if(ms)saved.stageTimes[STAGES[S_UC]]=ms}}
   syncTicks(saved);
   syncPay(saved);
   if(becamePaid)saved.paidOn=todayStr();
@@ -1442,7 +1445,7 @@ function payModal(kind,fixed){
   const parties=isR?[...new Map(openT.map(t=>[t.clientId||cliName(t),{v:t.clientId||cliName(t),l:cliName(t)}])).values()]:[...new Map(openT.map(t=>[t.tname,{v:t.tname,l:t.tname}])).values()];
   if(!parties.length)return toast('Nothing outstanding');
   modal('<h3>'+(isR?'💰 Receive from client':'📤 Pay transporter')+'</h3><label>'+(isR?'Client':'Transporter')+'</label><select id="pm-p"></select>'+(isR?'<label>Against invoice <i>(optional)</i></label><select id="pm-i"></select>':'')+
-   '<div class="note" id="pm-due" style="margin:6px 0 0"></div><label>Date</label><input id="pm-d" type="date" value="'+todayStr()+'"><label>'+(isR?'Amount received in bank ₹':'Amount ₹')+'</label><input id="pm-a" type="number" inputmode="decimal">'+(isR?'<label>TDS deducted by client ₹ <i>(optional — short amount)</i></label><input id="pm-t" type="number" inputmode="decimal" placeholder="0">':'')+'<label>Ref / UTR / Cheque no.</label><input id="pm-r"><label class="tog" style="margin-top:12px"><input type="checkbox" id="pm-b" checked> Add to bank ledger</label>'+
+   '<div class="note" id="pm-due" style="margin:6px 0 0"></div><label>Date</label><input id="pm-d" type="date" value="'+todayStr()+'"><label>'+(isR?'Amount received in bank ₹':'Amount ₹')+'</label><input id="pm-a" type="number" inputmode="decimal">'+(isR?'<label>TDS deducted by client ₹ <i>(optional — short amount)</i></label><input id="pm-t" type="number" inputmode="decimal" placeholder="0"><div class="note" id="pm-tn" style="margin:4px 0 0"></div>':'')+'<label>Ref / UTR / Cheque no.</label><input id="pm-r"><label class="tog" style="margin-top:12px"><input type="checkbox" id="pm-b" checked> Add to bank ledger</label>'+
    '<div class="note">The amount is applied to the oldest unpaid trips first. Each trip keeps its own part-payment entry.</div><div class="row2"><button class="big gry" id="pm-no" style="margin-top:12px">Cancel</button><button class="big" id="pm-ok" style="margin-top:12px">Save</button></div>',m=>{
     const P=m.querySelector('#pm-p');
     P.innerHTML=parties.sort((a,b)=>a.l.localeCompare(b.l)).map(x=>'<option value="'+esc(x.v)+'">'+esc(x.l)+'</option>').join('');
@@ -1451,6 +1454,7 @@ function payModal(kind,fixed){
     const upd=()=>{
       if(isR){const I=m.querySelector('#pm-i'),cur=I.value;const inv=[...new Set(openT.filter(t=>t.clientId===P.value||cliName(t)===P.value).map(t=>t.invoiceNo).filter(Boolean))];I.innerHTML='<option value="">All trips of this client</option>'+inv.map(x=>'<option>'+esc(x)+'</option>').join('');I.value=inv.includes(cur)?cur:(fixed&&fixed.invoice&&inv.includes(fixed.invoice)?fixed.invoice:'')}
       const d=r2(sel().reduce((s,t)=>s+(isR?calc(t).partyDue:calc(t).transDue),0));m.querySelector('#pm-due').innerHTML='Outstanding: <b>'+inr2(d)+'</b> on '+sel().length+' trip(s)';
+      if(isR){const ex=r2(sel().filter(t=>t.tdsOn).reduce((s,t)=>s+Math.max(0,num(t.freight)*(num(t.tdsRate)||1)/100-num(t.tdsAmt)),0));m.querySelector('#pm-tn').textContent=ex>0?'Auto: '+ex.toFixed(2)+' (TDS % × freight of trips marked for TDS). You can edit it.':'';m.querySelector('#pm-t').value=ex>0?ex.toFixed(2):''}
     };
     P.onchange=upd;if(isR)m.querySelector('#pm-i').onchange=upd;upd();
     m.querySelector('#pm-no').onclick=closeModal;
