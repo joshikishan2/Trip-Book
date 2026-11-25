@@ -1506,9 +1506,23 @@ function payModal(kind,fixed){
 function outModal(ty,key){
   const isR=ty==='r';
   const l=trips.filter(t=>(isR?(t.clientId||cliName(t))===key:t.tname===key)&&(isR?calc(t).partyDue>0:calc(t).transDue>0)).sort((a,b)=>(a.date||'').localeCompare(b.date||''));
-  modal('<h3>'+esc(l[0]?(isR?cliName(l[0]):l[0].tname):'')+'</h3>'+l.map(t=>'<div class="mrow"><span>'+fmtD(t.date)+' · <b>'+esc(t.vehicle)+'</b><br><small>'+esc(t.from)+' → '+esc(t.to)+(t.invoiceNo&&isR?' · '+esc(t.invoiceNo):'')+'</small></span><b class="red">'+inr2(isR?calc(t).partyDue:calc(t).transDue)+'</b></div>').join('')+(isR?'<div class="kv" style="margin-top:6px"><span><b>Total (incl. GST)</b></span><b class="red">'+inr2(r2(l.reduce((s,t)=>s+calc(t).partyDue,0)))+'</b></div>':'')+
+  const row=t=>{const c=calc(t),fu=Math.max(0,Math.min(r2(Math.min(c.rc,c.transGross)-c.pd),c.transDue));
+    const info=isR
+      ?'Bill '+inr2(c.gross)+(c.rc>0?' · received '+inr2(c.rc):'')+(c.td>0?' · TDS '+inr2(c.td):'')+(t.invoiceNo?' · '+esc(t.invoiceNo):'')
+      :'Trip freight '+inr2(c.fr)+' − your commission '+inr2(c.cm)+(c.pd>0?' − paid '+inr2(c.pd):'')+'<br>'+(fu>0.5?'<span style="color:var(--g2);font-weight:700">✔ Client paid you '+inr2(fu)+'</span>':'⏳ Client not paid yet');
+    return '<div class="mrow" style="align-items:flex-start"><span>'+fmtD(t.date)+' · <b>'+esc(t.vehicle)+'</b><br><b>👤 '+esc(cliName(t)||'—')+'</b><br><small>'+esc(t.from)+' → <b>'+esc(t.to||'—')+'</b>'+(num(t.qty)>0?' · '+num(t.qty)+' MT':'')+(t.lr?' · LR '+esc(t.lr):'')+(isR&&t.tname?' · '+esc(t.tname):'')+'<br>'+info+'</small></span><span style="text-align:right"><b class="red">'+inr2(isR?c.partyDue:c.transDue)+'</b>'+(isR?'<br><button type="button" class="btn2 g" data-sp="'+t.id+'" style="margin-top:6px;padding:4px 8px;font-size:12px">✔ Already paid</button>':'')+'</span></div>'};
+  modal('<h3>'+esc(l[0]?(isR?cliName(l[0]):l[0].tname):'')+'</h3>'+l.map(row).join('')+(isR?'<div class="kv" style="margin-top:6px"><span><b>Total (incl. GST)</b></span><b class="red">'+inr2(r2(l.reduce((s,t)=>s+calc(t).partyDue,0)))+'</b></div>':'')+
    '<div class="row2"><button class="big gry" id="o-x" style="margin-top:14px">Close</button><button class="big" id="o-p" style="margin-top:14px">'+(isR?'Receive':'Pay')+'</button></div>',m=>{
     m.querySelector('#o-x').onclick=closeModal;m.querySelector('#o-p').onclick=()=>{closeModal();payModal(ty,{party:key})};
+    m.querySelectorAll('[data-sp]').forEach(b=>b.onclick=()=>{
+      const t=trips.find(x=>x.id===b.dataset.sp);if(!t)return;const due=calc(t).partyDue;
+      ask('Mark <b>'+esc(t.vehicle)+'</b> ('+fmtD(t.date)+') as <b>already paid</b>?<br><br>This records <b>'+inr2(due)+'</b> as received on this trip. It is <b>not</b> added to the bank ledger (use this only if the money was already counted there or before the ledger start).','Yes, already paid',()=>{
+        const snap=JSON.stringify(trips);
+        t.recvs.push({id:uid(),date:todayStr(),amt:due,ref:'Marked already paid',bank:false});syncPay(t);
+        if(!save()){trips=JSON.parse(snap);return}
+        closeModal();toast('✅ Marked as paid');refreshView();
+      });
+    });
   });
 }
 
