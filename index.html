@@ -936,7 +936,22 @@ function restoreFile(e){
     try{
       const d=JSON.parse(r.result);const arr=Array.isArray(d)?d:d.trips;
       if(!Array.isArray(arr))throw 0;
-      ask(arr.length+' trips found. Merge with existing data? (existing records are kept; nothing is overwritten)','Merge',()=>{
+      const canReplace=!Array.isArray(d)&&d.app==='tripbook'&&d.db&&Array.isArray(d.db.ledger)&&Array.isArray(d.db.invoices);
+      const doReplace=()=>{
+        try{wr('tripbook_prerestore',{at:Date.now(),trips,db,master})}catch(x){return toast('⚠ Could not make a safety copy — nothing was changed')}
+        const nt=JSON.parse(JSON.stringify(d.trips)),nd=JSON.parse(JSON.stringify(d.db)),nm=d.master?JSON.parse(JSON.stringify(d.master)):master;
+        trips=nt;db=nd;master=Object.assign({veh:[],trn:[],term:[],ba:[],omc:[],termPlace:{}},nm);
+        trips.forEach(migrateTrip);trips.forEach(syncPay);
+        save();saveDB();saveM();toast('✅ Data replaced from backup ('+trips.length+' trips)');show('acc');
+      };
+      if(canReplace){
+        modal('<h3>Restore backup</h3><div style="font-size:15px;line-height:1.5;margin:8px 0 12px"><b>'+arr.length+' trips</b> and <b>'+d.db.ledger.length+' ledger entries</b> found.<br><br><b>Replace all</b> = this phone\'s data becomes exactly this backup (a safety copy of the current data is kept first). Use this for a corrected backup.<br><br><b>Merge</b> = only adds records that are missing; nothing is changed.</div><button class="big" id="rs-rep" style="margin:0 0 8px">♻ Replace all data with this backup</button><button class="big alt" id="rs-mer" style="margin:0 0 8px">➕ Merge (add missing only)</button><button class="big gry" id="rs-no" style="margin:0">Cancel</button>',m=>{
+          m.querySelector('#rs-no').onclick=closeModal;
+          m.querySelector('#rs-rep').onclick=()=>{closeModal();doReplace()};
+          m.querySelector('#rs-mer').onclick=()=>{closeModal();doMerge()};
+        });
+      }else ask(arr.length+' trips found. Merge with existing data? (existing records are kept; nothing is overwritten)','Merge',doMerge);
+      function doMerge(){
         const ids=new Set(trips.map(t=>t.id));let n=0;
         const sdb=d.db||{};
         const idMap={};
@@ -965,7 +980,7 @@ function restoreFile(e){
         const sc=(sdb.settings&&sdb.settings.series&&sdb.settings.series.counters)||{};
         Object.keys(sc).forEach(k=>{db.settings.series.counters[k]=Math.max(db.settings.series.counters[k]||0,sc[k]||0)});
         save();saveDB();toast(n+' new trips added');refreshView();
-      });
+      }
     }catch(x){toast('⚠ Invalid file')}
     e.target.value='';
   };
