@@ -1217,6 +1217,7 @@ $('#t-save').onclick=()=>{
   const tdsList=fT.filter(p=>num(p.amt)>0).map(p=>({id:p.id,date:p.date||todayStr(),amt:r2(num(p.amt)),ref:String(p.ref||'').trim(),bank:false,grp:p.grp||undefined}));
   const paids=fP.filter(p=>num(p.amt)>0).map(p=>({id:p.id,date:p.date||todayStr(),amt:r2(num(p.amt)),ref:String(p.ref||'').trim(),bank:!!p.bank,grp:p.grp||undefined}));
   if(sumA(recvs)+sumA(tdsList)>gr+0.005&&(isNew||sumA(recvs)+sumA(tdsList)>num(prevT.recvAmt)+num(prevT.tdsAmt)+0.005)){toast('⚠ Received total is more than the amount due ('+inr(gr)+')');return}
+  if($('#t-tds').checked&&sumA(recvs)>r2(gr-tdsExp(fr))+1&&(isNew||sumA(recvs)>num(prevT.recvAmt)+0.005)){toast('⚠ TDS is ticked, so the client pays net of TDS. Enter the bank amount only (max '+inr(Math.max(0,r2(gr-tdsExp(fr))))+').');return}
   const tgr=fr-cm+tbGstAmt(fr-cm);
   if(sumA(paids)>tgr+0.005&&(isNew||sumA(paids)>num(prevT.paidAmt)+0.005)){toast('⚠ Paid total is more than the transporter amount ('+inr(tgr)+')');return}
   const becamePaid=newSts.includes('Transporter Paid')&&!(prevT&&hasSt(prevT,'Transporter Paid'));
